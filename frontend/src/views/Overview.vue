@@ -24,9 +24,9 @@
         </button>
       </div>
 
-      <div class="grid grid-cols-3 gap-2 sm:gap-4 mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-slate-100 text-xs sm:text-sm">
+      <div class="grid grid-cols-3 gap-2 sm:gap-4 mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-slate-100 text-xs sm:text-sm text-center">
         <div>
-          <div class="text-slate-400 text-[10px] sm:text-xs font-medium mb-1 sm:mb-1.5">运行状态</div>
+          <div class="text-slate-400 text-[10px] sm:text-xs font-medium mb-1">运行状态</div>
           <span class="inline-flex items-center px-2 sm:px-3 py-0.5 rounded-full text-[10px] sm:text-xs font-medium border" :class="statusMeta.cls">
             <Icon v-if="statusMeta.spin" name="spinner" :size="12" class="mr-1 sm:mr-1.5" />
             <span v-else class="w-1 sm:w-1.5 h-1 sm:h-1.5 rounded-full mr-1 sm:mr-1.5" :class="statusMeta.dot" />
@@ -34,7 +34,7 @@
           </span>
         </div>
         <div v-for="f in infoFields" :key="f.label">
-          <div class="text-slate-400 text-[10px] sm:text-xs font-medium mb-0.5 sm:mb-1">{{ f.label }}</div>
+          <div class="text-slate-400 text-[10px] sm:text-xs font-medium mb-1">{{ f.label }}</div>
           <div class="text-slate-800 font-medium text-sm sm:text-base truncate">{{ f.value }}</div>
         </div>
       </div>
@@ -43,8 +43,15 @@
       <div v-if="statusData.last_message"
         class="mt-4 px-4 py-2.5 rounded-xl text-xs font-medium flex items-center gap-2 border"
         :class="isBuilding ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-amber-50 text-amber-600 border-amber-100'">
-        <Icon :name="isBuilding ? 'spinner' : 'warning'" :size="14" />
+        <Icon :name="isBuilding ? 'info' : 'warning'" :size="14" />
         <span class="truncate">{{ statusData.last_message }}</span>
+      </div>
+
+      <!-- 实时连接断开提示 -->
+      <div v-if="!wsConnected"
+        class="mt-4 px-4 py-2.5 rounded-xl text-xs font-medium flex items-center gap-2 border bg-rose-50 text-rose-600 border-rose-100">
+        <Icon name="warning" :size="14" />
+        <span>实时连接已断开，正在自动重连…</span>
       </div>
     </div>
 
@@ -65,8 +72,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { statusData, type StatusData } from '../store'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { statusData, wsConnected, type StatusData } from '../store'
 import { apiGet, apiPost } from '../api'
 import { showToast } from '../toast'
 import Icon, { type IconName } from '../components/Icon.vue'
@@ -83,9 +90,36 @@ const statusMeta = computed(() => {
 })
 
 const infoFields = computed(() => [
-  { label: '运行时间', value: statusData.value.uptime },
+  { label: '运行时间', value: uptimeText.value },
   { label: '构建时间', value: statusData.value.build_time }
 ])
+
+// 运行时长本地计算（started_at + 每秒刷新）
+const now = ref(Date.now())
+let nowTimer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  nowTimer = setInterval(() => { now.value = Date.now() }, 1000)
+})
+onUnmounted(() => {
+  if (nowTimer !== null) clearInterval(nowTimer)
+})
+
+const formatDuration = (total: number): string => {
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h > 0) return `${h}小时${m}分${s}秒`
+  if (m > 0) return `${m}分${s}秒`
+  return `${s}秒`
+}
+
+const uptimeText = computed(() => {
+  const s = statusData.value
+  if (s.status !== 'running' || !s.started_at) return '-'
+  const secs = Math.max(0, Math.floor((now.value - s.started_at * 1000) / 1000))
+  return formatDuration(secs)
+})
 
 interface ActionCard {
   action: string
@@ -105,9 +139,9 @@ const actionCards = computed<ActionCard[]>(() => [
 ])
 
 const openApp = async () => {
-  const cfg = await apiGet<{ reverse_proxy_url?: string }>('config')
-  if (cfg?.reverse_proxy_url) {
-    window.open(cfg.reverse_proxy_url, '_blank')
+  const res = await apiGet<{ reverse_proxy_url?: string }>('config')
+  if (res?.ok && res.data.reverse_proxy_url) {
+    window.open(res.data.reverse_proxy_url, '_blank')
     return
   }
   const appUrl = statusData.value.app_url
@@ -118,18 +152,12 @@ const openApp = async () => {
 
 const doAction = async (action: string) => {
   loading.value = true
-  if (action === 'upgrade') {
-    showToast('已触发拉取更新，等待后台响应...', 'loading')
-  } else if (action === 'rebuild') {
-    showToast('已触发强制重建，等待后台响应...', 'loading')
-  }
-  const data = await apiPost<StatusData>('action', { action })
-  if (data) {
-    if (action !== 'upgrade' && action !== 'rebuild') {
-      statusData.value = data
-    }
-  } else {
-    showToast('操作失败，请查看运行日志', 'warning')
+  // 成功不弹 toast，状态标签即反馈
+  const res = await apiPost<StatusData>('action', { action })
+  if (!res) {
+    showToast('网络连接失败')
+  } else if (!res.ok) {
+    showToast(res.message)
   }
   loading.value = false
 }

@@ -1,19 +1,18 @@
 package main
 
 import (
-	"bytes"
 	"embed"
-	"encoding/json"
-	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 var WebFS embed.FS
@@ -25,7 +24,7 @@ func InitRoutes(r *gin.Engine) {
 
 	api := base.Group("/api")
 	{
-		api.GET("/events", handleEvents)
+		api.GET("/ws", handleWS)
 		api.POST("/action", handleAction)
 		api.GET("/logs", handleGetLogs)
 		api.DELETE("/logs", handleDeleteLogs)
@@ -46,6 +45,11 @@ func InitRoutes(r *gin.Engine) {
 	})
 
 	r.NoRoute(func(c *gin.Context) {
+		// 未知 API 路径返回 404 JSON，不回退首页
+		if strings.HasPrefix(c.Request.URL.Path, basePath+"/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"message": "接口不存在"})
+			return
+		}
 		fp := strings.TrimPrefix(c.Request.URL.Path, basePath)
 		if fp == "" {
 			fp = "/"
@@ -62,16 +66,18 @@ func InitRoutes(r *gin.Engine) {
 	})
 }
 
-func R(c *gin.Context, data any) {
-	c.JSON(200, gin.H{"code": 0, "data": data})
+// OK 成功响应：HTTP 200 + 裸数据
+func OK(c *gin.Context, data any) {
+	c.JSON(http.StatusOK, data)
 }
 
-func RE(c *gin.Context, code int, msg string) {
-	c.JSON(200, gin.H{"code": code, "message": msg})
+// Fail 失败响应：HTTP 状态码 + {message}
+func Fail(c *gin.Context, status int, msg string) {
+	c.JSON(status, gin.H{"message": msg})
 }
 
 func statusPayload() gin.H {
-	status, uptime, lastMsg, commit, version, buildTime := state.Snapshot()
+	status, uptime, lastMsg, commit, version, buildTime, startedAt := state.Snapshot()
 	cfg := GetConfig()
 
 	port := cfg.ProxyPort
@@ -86,64 +92,79 @@ func statusPayload() gin.H {
 		"commit":       commit,
 		"status":       status,
 		"uptime":       uptime,
+		"started_at":   startedAt,
 		"build_time":   buildTime,
 		"app_url":      appURL,
 		"last_message": lastMsg,
 	}
 }
 
-func handleStatus(c *gin.Context) {
-	R(c, statusPayload())
+// wsUpgrader WebSocket 升级器（允许任意 Origin）
+var wsUpgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// handleEvents SSE：状态变更与日志增量实时推送
-func handleEvents(c *gin.Context) {
-	w := c.Writer
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
+// wsMsg WebSocket 消息：type 为 status/log，data 为负载
+type wsMsg struct {
+	Type string `json:"type"`
+	Data any    `json:"data"`
+}
 
-	writeSSE(w, "status", statusPayload())
-	w.Flush()
+// handleWS WebSocket：状态与日志实时推送
+func handleWS(c *gin.Context) {
+	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		LogWarning("WebSocket 升级失败: %s", err)
+		return
+	}
+	defer conn.Close()
 
-	logCh, unsubscribe := SubscribeLog(256)
-	defer unsubscribe()
+	// gorilla/websocket 不允许多协程并发写
+	var writeMu sync.Mutex
+	writeJSON := func(v any) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_ = conn.WriteJSON(v)
+	}
 
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	// 连接即快照
+	writeJSON(wsMsg{Type: "status", Data: statusPayload()})
+
+	// 事件驱动：状态与日志变更即时推送
+	stateCh, unsubscribeState := state.SubscribeState(16)
+	defer unsubscribeState()
+	logCh, unsubscribeLog := SubscribeLog(256)
+	defer unsubscribeLog()
+
+	// 读循环：消费控制帧并检测断开
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 
-	lastStatus, _ := json.Marshal(statusPayload())
-
 	for {
 		select {
-		case <-c.Request.Context().Done():
+		case <-done:
 			return
+		case <-stateCh:
+			writeJSON(wsMsg{Type: "status", Data: statusPayload()})
 		case chunk := <-logCh:
-			writeSSE(w, "log", chunk)
-			w.Flush()
-		case <-ticker.C:
-			cur, _ := json.Marshal(statusPayload())
-			if !bytes.Equal(cur, lastStatus) {
-				lastStatus = cur
-				writeSSE(w, "status", statusPayload())
-				w.Flush()
-			}
+			writeJSON(wsMsg{Type: "log", Data: chunk})
 		case <-heartbeat.C:
-			_, _ = fmt.Fprint(w, ": hb\n\n")
-			w.Flush()
+			// 心跳 ping，防代理空闲断连
+			writeMu.Lock()
+			_ = conn.WriteMessage(websocket.PingMessage, nil)
+			writeMu.Unlock()
 		}
 	}
-}
-
-func writeSSE(w http.ResponseWriter, event string, data any) {
-	payload, err := json.Marshal(data)
-	if err != nil {
-		return
-	}
-	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload)
 }
 
 func handleAction(c *gin.Context) {
@@ -151,17 +172,17 @@ func handleAction(c *gin.Context) {
 		Action string `json:"action"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		RE(c, 1, "参数错误")
+		Fail(c, http.StatusBadRequest, "参数错误")
 		return
 	}
 
-	var err error
 	switch req.Action {
 	case "start", "stop", "restart":
 		if state.Status() == StatusBuilding {
-			RE(c, 1, "正在构建中，请稍候再试")
+			Fail(c, http.StatusConflict, "正在构建中，请稍候再试")
 			return
 		}
+		var err error
 		switch req.Action {
 		case "start":
 			err = Start()
@@ -170,42 +191,63 @@ func handleAction(c *gin.Context) {
 		case "restart":
 			err = Restart()
 		}
-	case "upgrade":
-		if state.Status() == StatusBuilding {
-			RE(c, 1, "正在构建中，请稍候再试")
+		if err != nil {
+			Fail(c, actionErrStatus(err), err.Error())
 			return
 		}
-		Upgrade()
-	case "rebuild":
+	case "upgrade", "rebuild":
 		if state.Status() == StatusBuilding {
-			RE(c, 1, "正在构建中，请稍候再试")
+			Fail(c, http.StatusConflict, "正在构建中，请稍候再试")
 			return
 		}
-		Rebuild()
+		if req.Action == "upgrade" {
+			Upgrade()
+		} else {
+			Rebuild()
+		}
 	default:
-		RE(c, 1, "未知操作: "+req.Action)
+		Fail(c, http.StatusBadRequest, "未知操作: "+req.Action)
 		return
 	}
 
-	if err != nil {
-		RE(c, 1, err.Error())
-		return
+	OK(c, statusPayload())
+}
+
+// actionErrStatus 将动作前置错误映射为合适的 HTTP 状态码
+func actionErrStatus(err error) int {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "源码不存在"):
+		return http.StatusNotFound
+	case strings.Contains(msg, "构建中"), strings.Contains(msg, "运行中"), strings.Contains(msg, "依赖未安装"):
+		return http.StatusConflict
+	default:
+		return http.StatusInternalServerError
 	}
-	handleStatus(c)
 }
 
 func handleGetLogs(c *gin.Context) {
 	data, err := os.ReadFile(logFilePath())
 	if err != nil {
-		R(c, "")
+		// 日志文件不存在属正常空态
+		if os.IsNotExist(err) {
+			OK(c, "")
+			return
+		}
+		Fail(c, http.StatusInternalServerError, "读取日志失败: "+err.Error())
 		return
 	}
-	R(c, string(data))
+	OK(c, string(data))
 }
 
 func handleDeleteLogs(c *gin.Context) {
-	_ = os.Truncate(logFilePath(), 0)
-	R(c, nil)
+	err := os.Truncate(logFilePath(), 0)
+	if err != nil && !os.IsNotExist(err) {
+		// 文件不存在视为无需清空
+		Fail(c, http.StatusInternalServerError, "清空日志失败: "+err.Error())
+		return
+	}
+	OK(c, true)
 }
 
 func handleDownloadLogs(c *gin.Context) {
@@ -213,23 +255,26 @@ func handleDownloadLogs(c *gin.Context) {
 }
 
 func handleGetConfig(c *gin.Context) {
-	R(c, GetConfig())
+	OK(c, GetConfig())
 }
 
 func handleSaveConfig(c *gin.Context) {
 	var cfg Config
 	if err := c.ShouldBindJSON(&cfg); err != nil {
-		RE(c, 1, "参数错误: "+err.Error())
+		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
 		return
 	}
 	cfg.BuildTime = GetBuildTime()
 	cfg.Version = GetVersion()
 	cfg.Commit = GetCommit()
 	if err := SaveConfig(cfg); err != nil {
-		RE(c, 1, "保存失败: "+err.Error())
+		Fail(c, http.StatusInternalServerError, "保存失败: "+err.Error())
 		return
 	}
-	R(c, cfg)
+	// 保存后热更新反向代理并广播状态变更
+	restartReverseProxy()
+	state.Poke()
+	OK(c, cfg)
 }
 
 func logFilePath() string {

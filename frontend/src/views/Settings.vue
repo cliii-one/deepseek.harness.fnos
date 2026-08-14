@@ -2,10 +2,16 @@
   <div class="space-y-6 max-w-3xl mx-auto">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-bold text-slate-800 tracking-tight">应用设置</h1>
-      <span v-if="saveError"
-        class="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">
-        保存失败
-      </span>
+      <div class="flex items-center gap-2">
+        <span v-if="loadError"
+          class="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">
+          配置加载失败，已禁用保存
+        </span>
+        <span v-if="saveError"
+          class="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">
+          保存失败
+        </span>
+      </div>
     </div>
 
     <template v-if="configLoaded">
@@ -44,7 +50,7 @@
           <label class="block text-xs font-semibold text-slate-700">网络代理 (HTTP / SOCKS5)</label>
           <input type="text" v-model="config.network_proxy"
             placeholder="例如 http://192.168.1.100:7890 或 socks5://192.168.1.100:7890" :class="inputCls">
-          <p class="text-[11px] text-slate-400">用于拉取 Git 代码与安装 Node 依赖，留空使用直连。</p>
+          <p class="text-[11px] text-slate-400">用于拉取 Git 代码与 npm 下载，留空使用直连。</p>
         </div>
       </section>
 
@@ -102,20 +108,30 @@ const portFields: { key: 'server_port' | 'proxy_port'; label: string; placeholde
 ]
 
 const saveError = ref(false)
+const loadError = ref(false)
 const configLoaded = ref(false)
 let skipWatch = true
 
 onMounted(async () => {
-  const data = await apiGet<Partial<HarnessConfig>>('config')
-  if (data) {
-    config.value = { ...config.value, ...data }
+  const res = await apiGet<Partial<HarnessConfig>>('config')
+  if (res?.ok && res.data) {
+    config.value = { ...config.value, ...res.data }
+  } else {
+    // 加载失败禁用保存，防默认值覆盖
+    loadError.value = true
   }
   skipWatch = false
   configLoaded.value = true
 })
 
-watch(config, async (cfg) => {
-  if (skipWatch) return
-  saveError.value = (await apiPost('config', cfg)) === null
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+watch(config, (cfg) => {
+  if (skipWatch || loadError.value) return
+  // 保存防抖
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(async () => {
+    const res = await apiPost<HarnessConfig>('config', cfg)
+    saveError.value = !(res?.ok ?? false)
+  }, 400)
 }, { deep: true })
 </script>

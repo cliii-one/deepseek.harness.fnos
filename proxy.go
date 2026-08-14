@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -283,7 +284,10 @@ func loadOrCreateProxyTLS() (*tls.Config, error) {
 func startReverseProxy() error {
 	proxyMu.Lock()
 	defer proxyMu.Unlock()
+	return startReverseProxyLocked()
+}
 
+func startReverseProxyLocked() error {
 	if proxyHTTP != nil || proxyHTTPS != nil {
 		return nil
 	}
@@ -311,8 +315,13 @@ func startReverseProxy() error {
 	}
 	errHandler := func(w http.ResponseWriter, r *http.Request, err error) {
 		LogWarning("反向代理 %s 错误: %s", proxyAddr, err)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusBadGateway)
-		_, _ = w.Write([]byte("deepseek-harness 反向代理错误"))
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error":   "bad_gateway",
+			"message": proxyErrMessage(),
+			"detail":  err.Error(),
+		})
 	}
 	proxy.ErrorHandler = errHandler
 
@@ -356,7 +365,10 @@ func startReverseProxy() error {
 func stopReverseProxy() {
 	proxyMu.Lock()
 	defer proxyMu.Unlock()
+	stopReverseProxyLocked()
+}
 
+func stopReverseProxyLocked() {
 	if proxyHTTP == nil && proxyHTTPS == nil {
 		return
 	}
@@ -375,4 +387,29 @@ func stopReverseProxy() {
 		proxyCmux = nil
 	}
 	LogInfo("反向代理已停止")
+}
+
+// proxyErrMessage 根据当前服务状态给出准确的代理错误提示
+func proxyErrMessage() string {
+	switch state.Status() {
+	case StatusRunning:
+		return "服务启动中，请稍候重试"
+	case StatusBuilding:
+		return "服务构建中，请稍候重试"
+	case StatusStopped:
+		return "服务未启动，请在概览页启动"
+	default:
+		return "无法连接到后端服务"
+	}
+}
+
+// restartReverseProxy 按最新配置重启反向代理
+func restartReverseProxy() {
+	proxyMu.Lock()
+	defer proxyMu.Unlock()
+	stopReverseProxyLocked()
+	LogInfo("反向代理配置变更，按新配置重启")
+	if err := startReverseProxyLocked(); err != nil {
+		LogWarning("反向代理重启失败: %s", err)
+	}
 }

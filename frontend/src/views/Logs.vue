@@ -51,6 +51,8 @@ let offReconnect: (() => void) | null = null
 let pendingBuffer = ''
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let skipScroll = false
+/** 全量拉取中：WS 增量先入缓冲，返回后与全量合并 */
+let fetching = false
 
 const displayedText = computed(() => lines.value.join(''))
 
@@ -100,29 +102,35 @@ const scheduleFlush = () => {
 
 const appendChunk = (chunk: string) => {
   pendingBuffer += chunk
-  scheduleFlush()
+  if (!fetching) scheduleFlush()
 }
 
 const fetchLogs = async () => {
-  pendingBuffer = ''
+  fetching = true
   if (flushTimer !== null) {
     clearTimeout(flushTimer)
     flushTimer = null
   }
-  const data = await apiGet<string>('logs')
-  if (data !== null) {
-    const allLines = data.split(/(?<=\n)/)
-    lines.value = allLines.filter(l => l.length > 0)
-    trimLines()
-    scrollToBottom()
-  } else {
-    lines.value = []
-  }
+  pendingBuffer = ''
+  const res = await apiGet<string>('logs')
+  const allLines = (res?.ok && typeof res.data === 'string')
+    ? res.data.split(/(?<=\n)/).filter(l => l.length > 0)
+    : []
+  // 拼接拉取窗口内的 WS 增量
+  const extraLines = pendingBuffer.split(/(?<=\n)/).filter(l => l.length > 0)
+  pendingBuffer = ''
+  lines.value = [...allLines, ...extraLines]
+  trimLines()
+  scrollToBottom()
+  fetching = false
 }
 
 const clearLogs = async () => {
   if (!confirm('确定要清空所有运行日志吗？')) return
-  if (await apiDelete('logs') !== null) {
+  const res = await apiDelete<boolean>('logs')
+  if (!res) {
+    showToast('网络连接失败')
+  } else if (res.ok) {
     pendingBuffer = ''
     if (flushTimer !== null) {
       clearTimeout(flushTimer)
@@ -130,7 +138,7 @@ const clearLogs = async () => {
     }
     lines.value = []
   } else {
-    showToast('清空日志失败', 'warning')
+    showToast(res.message)
   }
 }
 

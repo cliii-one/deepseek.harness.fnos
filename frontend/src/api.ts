@@ -1,15 +1,15 @@
-interface ApiEnvelope<T> {
-  code: number
-  data?: T
-  message?: string
-}
+/** API 契约：2xx 返回裸数据，4xx/5xx 返回 { message }，null 为网络失败 */
+export type ApiResult<T> = { ok: true; data: T } | { ok: false; message: string }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T | null> {
+async function request<T>(path: string, init?: RequestInit): Promise<ApiResult<T> | null> {
   try {
     const res = await fetch(`api/${path}`, init)
-    if (!res.ok) return null
-    const body = (await res.json()) as ApiEnvelope<T>
-    return body.code === 0 ? (body.data ?? null) : null
+    const body = (await res.json().catch(() => null)) as Record<string, unknown> | T | null
+    if (res.ok) {
+      return { ok: true, data: body as T }
+    }
+    const message = (body as { message?: string } | null)?.message ?? `请求失败 (${res.status})`
+    return { ok: false, message }
   } catch {
     return null
   }

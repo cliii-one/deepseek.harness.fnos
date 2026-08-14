@@ -39,7 +39,7 @@ import Settings from './views/Settings.vue'
 import NavItem from './components/NavItem.vue'
 import Toasts from './components/Toasts.vue'
 import Icon from './components/Icon.vue'
-import { connectEvents } from './store'
+import { connectWS } from './store'
 import type { IconName } from './components/Icon.vue'
 
 type TabKey = 'overview' | 'logs' | 'settings'
@@ -60,5 +60,5 @@ const mobileTabs: { key: TabKey; label: string; icon: IconName }[] = [
 const tab = ref<TabKey>('overview')
 const currentView = computed(() => views[tab.value])
 
-onMounted(connectEvents)
+onMounted(connectWS)
 </script>

@@ -31,17 +31,24 @@ type HarnessState struct {
 	status      string
 	startTime   time.Time
 	lastMessage string
+	stateSubs   map[chan struct{}]struct{}
 }
 
-var state = &HarnessState{status: StatusStopped}
+var state = &HarnessState{status: StatusStopped, stateSubs: make(map[chan struct{}]struct{})}
 
 func (s *HarnessState) SetStatus(status, msg string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	becameRunning := status == StatusRunning && s.status != status
+	changed := s.status != status || s.lastMessage != msg
 	s.status = status
 	s.lastMessage = msg
-	if status == StatusRunning {
+	if becameRunning {
+		// 仅在变为运行中时重置计时
 		s.startTime = time.Now()
+	}
+	s.mu.Unlock()
+	if changed {
+		s.notify()
 	}
 }
 
@@ -51,7 +58,7 @@ func (s *HarnessState) Status() string {
 	return s.status
 }
 
-func (s *HarnessState) Snapshot() (status, uptime, lastMsg, commit, version, buildTime string) {
+func (s *HarnessState) Snapshot() (status, uptime, lastMsg, commit, version, buildTime string, startedAt int64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	status = s.status
@@ -59,6 +66,7 @@ func (s *HarnessState) Snapshot() (status, uptime, lastMsg, commit, version, bui
 	commit = GetCommit()
 	version = GetVersion()
 	if status == StatusRunning && !s.startTime.IsZero() {
+		startedAt = s.startTime.Unix()
 		uptime = formatDuration(time.Since(s.startTime))
 	} else {
 		uptime = "-"
@@ -68,6 +76,40 @@ func (s *HarnessState) Snapshot() (status, uptime, lastMsg, commit, version, bui
 		buildTime = "-"
 	}
 	return
+}
+
+// notify 广播状态变更事件给订阅者
+func (s *HarnessState) notify() {
+	s.mu.RLock()
+	subs := make([]chan struct{}, 0, len(s.stateSubs))
+	for ch := range s.stateSubs {
+		subs = append(subs, ch)
+	}
+	s.mu.RUnlock()
+	for _, ch := range subs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// SubscribeState 订阅状态变更事件，返回的取消函数用于退订
+func (s *HarnessState) SubscribeState(buf int) (<-chan struct{}, func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ch := make(chan struct{}, buf)
+	s.stateSubs[ch] = struct{}{}
+	return ch, func() {
+		s.mu.Lock()
+		delete(s.stateSubs, ch)
+		s.mu.Unlock()
+	}
+}
+
+// Poke 强制广播一次状态变更
+func (s *HarnessState) Poke() {
+	s.notify()
 }
 
 var (
@@ -317,7 +359,8 @@ func Rebuild() {
 
 func gitClone() error {
 	_ = os.MkdirAll(filepath.Dir(srcDir), 0755)
-	cmd := exec.Command(gitBin, "clone", "--depth=1", repoURL, srcDir)
+	args := append(gitProxyArgs(), "clone", "--depth=1", repoURL, srcDir)
+	cmd := exec.Command(gitBin, args...)
 	cmd.Env = buildEnv()
 	cmd.Stdout = &logWriter{}
 	cmd.Stderr = &logWriter{}
@@ -328,7 +371,8 @@ func gitClone() error {
 }
 
 func gitPull() error {
-	cmd := exec.Command(gitBin, "-C", srcDir, "pull", "--ff-only")
+	args := append(gitProxyArgs(), "-C", srcDir, "pull", "--ff-only")
+	cmd := exec.Command(gitBin, args...)
 	cmd.Env = buildEnv()
 	cmd.Stdout = &logWriter{}
 	cmd.Stderr = &logWriter{}
@@ -526,14 +570,35 @@ func buildEnv() []string {
 	env = appendOrReplace(env, "PNPM_HOME", filepath.Join(pkgVarDir, "pnpm-home"))
 	env = appendOrReplace(env, "DSH_HOME", filepath.Join(pkgVarDir, "dsh-data"))
 	env = appendOrReplace(env, "DSH_AGENTS_HOME", filepath.Join(pkgVarDir, "dsh-data", "agents"))
+
+	// 代理：git 用 -c 参数；npm 走代理但镜像域名直连
 	cfg := GetConfig()
 	if cfg.NetworkProxy != "" {
+		noProxy := "localhost,127.0.0.1,::1,registry.npmmirror.com,npmmirror.com"
+		// npm/pnpm 配置（随生命周期脚本传给 node-gyp 等）
+		env = appendOrReplace(env, "npm_config_proxy", cfg.NetworkProxy)
+		env = appendOrReplace(env, "npm_config_https_proxy", cfg.NetworkProxy)
+		env = appendOrReplace(env, "npm_config_noproxy", noProxy)
+		// 标准代理变量（覆盖未读 npm 配置的其他工具）
 		env = appendOrReplace(env, "HTTP_PROXY", cfg.NetworkProxy)
 		env = appendOrReplace(env, "HTTPS_PROXY", cfg.NetworkProxy)
 		env = appendOrReplace(env, "ALL_PROXY", cfg.NetworkProxy)
-		env = appendOrReplace(env, "NO_PROXY", "localhost,127.0.0.1,::1")
+		env = appendOrReplace(env, "NO_PROXY", noProxy)
+		env = appendOrReplace(env, "no_proxy", noProxy)
 	}
 	return env
+}
+
+// gitProxyArgs 返回 git 代理参数（未配置时为空），仅 clone/pull 使用
+func gitProxyArgs() []string {
+	cfg := GetConfig()
+	if cfg.NetworkProxy == "" {
+		return nil
+	}
+	return []string{
+		"-c", "http.proxy=" + cfg.NetworkProxy,
+		"-c", "https.proxy=" + cfg.NetworkProxy,
+	}
 }
 
 func appendOrReplace(env []string, key, val string) []string {
