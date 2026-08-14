@@ -1,0 +1,20 @@
+{
+    ".url": {
+        "deepseek.harness.Application": {
+            "title": "DeepSeek Harness",
+            "icon": "images/icon_{0}.png",
+            "type": "iframe",
+            "protocol": "http",
+            "gatewaySocket": "web.sock",
+            "gatewayPrefix": "/app/deepseek-harness",
+            "url": "/app/deepseek-harness/",
+            "allUsers": false,
+            "control": {
+                "accessPerm": "readonly",
+                "fullUrlPerm": "readonly",
+                "portPerm": "readonly",
+                "pathPerm": "readonly"
+            }
+        }
+    }
+}

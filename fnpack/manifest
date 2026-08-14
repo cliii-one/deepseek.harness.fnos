@@ -1,0 +1,11 @@
+appname               = deepseek.harness
+version               = 0.1.2
+display_name          = DeepSeek Harness
+desc                  = DeepSeek Harness 管理应用，支持管理 Harness 服务的启动、停止、重启、源码构建与升级。
+platform              = x86
+source                = thirdparty
+install_dep_apps      = nodejs_v24
+maintainer            = yuexps
+distributor           = yuexps
+desktop_uidir         = ui
+desktop_applaunchname = deepseek.harness.Application
