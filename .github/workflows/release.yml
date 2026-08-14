@@ -1,0 +1,74 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FNPACK_BIN: fnpack-1.2.3-linux-amd64
+  BIN_NAME: deepseek.harness
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Build x86 fpk
+        run: |
+          mkdir -p fnpack/app/bin
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o fnpack/app/bin/${{ env.BIN_NAME }} .
+          cd fnpack
+          chmod +x ${{ env.FNPACK_BIN }}
+          ./${{ env.FNPACK_BIN }} build
+          cd ..
+          mv fnpack/${{ env.BIN_NAME }}.fpk ./${{ env.BIN_NAME }}-x86.fpk
+
+      - name: Build arm fpk
+        run: |
+          mkdir -p fnpack_arm/app/bin
+          cp -r fnpack/* fnpack_arm/
+          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o fnpack_arm/app/bin/${{ env.BIN_NAME }} .
+          sed -i 's/platform[[:space:]]*=[[:space:]]*x86/platform              = arm/g' fnpack_arm/manifest
+          cd fnpack_arm
+          chmod +x ${{ env.FNPACK_BIN }}
+          ./${{ env.FNPACK_BIN }} build
+          cd ..
+          mv fnpack_arm/${{ env.BIN_NAME }}.fpk ./${{ env.BIN_NAME }}-arm.fpk
+          rm -rf fnpack_arm
+
+      - name: Upload Pre-release Asset
+        uses: marvinpinto/action-automatic-releases@latest
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "pre-release"
+          prerelease: true
+          title: "Latest Pre-release Build"
+          files: |
+            ${{ env.BIN_NAME }}-x86.fpk
+            ${{ env.BIN_NAME }}-arm.fpk
