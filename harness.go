@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -423,6 +424,57 @@ func installGCC() error {
 	return nil
 }
 
+// landlockNativeDir 返回当前主机架构对应的 landlock 平台包目录（amd64→x64）
+func landlockNativeDir() string {
+	arch := runtime.GOARCH
+	if arch == "amd64" {
+		arch = "x64"
+	}
+	return filepath.Join(srcDir, "native", "landlock-run", "packages", "linux-"+arch)
+}
+
+func ensureMusl() error {
+	if _, err := exec.LookPath("musl-gcc"); err == nil {
+		return nil
+	}
+	state.SetStatus(StatusBuilding, "缺少 musl 工具链，正在安装 musl-tools...")
+	LogInfo("未检测到 musl-gcc，尝试自动安装")
+	cmd := exec.Command("apt-get", "install", "-y", "musl-tools")
+	cmd.Env = buildEnv()
+	cmd.Stdout = &logWriter{}
+	cmd.Stderr = &logWriter{}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("apt-get install musl-tools 失败: %w", err)
+	}
+	if _, err := exec.LookPath("musl-gcc"); err != nil {
+		return fmt.Errorf("musl-tools 安装后仍未检测到 musl-gcc，请手动安装")
+	}
+	LogInfo("musl-tools 安装完成")
+	return nil
+}
+
+// buildLandlock 构建 landlock-run 原生二进制（git 不含该产物），已存在则跳过
+func buildLandlock() error {
+	bin := filepath.Join(landlockNativeDir(), "bin", "landlock-run")
+	if _, err := os.Stat(bin); err == nil {
+		LogInfo("landlock-run 已存在，跳过构建: %s", bin)
+		return nil
+	}
+	state.SetStatus(StatusBuilding, "正在构建 landlock 沙箱组件...")
+	LogInfo("未检测到 landlock-run，开始构建原生组件")
+	if err := ensureMusl(); err != nil {
+		return err
+	}
+	if err := runCmd(srcDir, pnpmBin(), "--filter", "@deepseek-ai/node-addon-landlock-run-workspace", "run", "build:native"); err != nil {
+		return fmt.Errorf("landlock build:native: %w", err)
+	}
+	if _, err := os.Stat(bin); err != nil {
+		return fmt.Errorf("landlock 构建完成但产物缺失: %s", bin)
+	}
+	LogInfo("landlock-run 构建完成: %s", bin)
+	return nil
+}
+
 func buildSource() error {
 	state.SetStatus(StatusBuilding, "正在安装 pnpm...")
 	if err := installPnpm(); err != nil {
@@ -438,6 +490,9 @@ func buildSource() error {
 	state.SetStatus(StatusBuilding, "正在编译构建...")
 	if err := runCmd(srcDir, pnpmBin(), "run", "build"); err != nil {
 		return fmt.Errorf("pnpm run build: %w", err)
+	}
+	if err := buildLandlock(); err != nil {
+		return err
 	}
 	SetBuildTime(time.Now())
 	return nil
