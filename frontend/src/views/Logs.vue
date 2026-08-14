@@ -1,5 +1,5 @@
 <template>
-  <div class="w-full max-w-7xl mx-auto flex flex-col gap-4 h-[calc(100vh-80px)] sm:h-[calc(100vh-100px)]">
+  <div class="w-full max-w-7xl mx-auto flex flex-col gap-4 h-[calc(100vh-140px)] sm:h-[calc(100vh-100px)]">
     <!-- 头部工具栏 -->
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shrink-0">
       <h1 class="text-xl font-bold text-slate-800 tracking-tight">运行日志</h1>

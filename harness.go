@@ -93,6 +93,7 @@ func InitHarness(pkgVar, appdest string) {
 	KillHarness()
 
 	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+		state.SetStatus(StatusBuilding, "正在准备初始化...")
 		go func() {
 			zipPath := filepath.Join(appDest, "deepseek-harness.zip")
 			if _, err := os.Stat(zipPath); err == nil {
@@ -146,6 +147,12 @@ func Start() error {
 	}
 	if state.Status() == StatusRunning {
 		return fmt.Errorf("服务已在运行中")
+	}
+	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+		return fmt.Errorf("源码不存在，请先点击【拉取更新】进行初始化")
+	}
+	if _, err := os.Stat(filepath.Join(srcDir, "node_modules")); os.IsNotExist(err) {
+		return fmt.Errorf("依赖未安装，请先点击【强制重建】进行构建")
 	}
 	return startLocked()
 }
@@ -282,6 +289,31 @@ func Upgrade() {
 	}()
 }
 
+// Rebuild 跳过 git pull，强制重新构建并重启
+func Rebuild() {
+	state.SetStatus(StatusBuilding, "正在准备强制重建...")
+	go func() {
+		procMu.Lock()
+		_ = stopLocked()
+		procMu.Unlock()
+
+		if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+			state.SetStatus(StatusStopped, "源码不存在，请先拉取更新")
+			return
+		}
+
+		state.SetStatus(StatusBuilding, "正在强制重建...")
+		if err := buildSource(); err != nil {
+			LogWarning("构建失败: %s", err)
+			state.SetStatus(StatusStopped, "构建失败: "+err.Error())
+			return
+		}
+
+		refreshCommit()
+		restartService()
+	}()
+}
+
 func gitClone() error {
 	_ = os.MkdirAll(filepath.Dir(srcDir), 0755)
 	cmd := exec.Command(gitBin, "clone", "--depth=1", repoURL, srcDir)
@@ -362,10 +394,42 @@ func installPnpm() error {
 	return runCmd(pnpmDir, npmBin(), "install", "pnpm")
 }
 
+func ensureGCC() error {
+	if _, err := exec.LookPath("gcc"); err == nil {
+		return nil
+	}
+	state.SetStatus(StatusBuilding, "缺少构建工具，正在安装 gcc...")
+	LogInfo("未检测到 gcc，尝试自动安装")
+	if err := installGCC(); err != nil {
+		return fmt.Errorf("自动安装 gcc 失败: %w\n请手动安装 gcc/g++ 后重试", err)
+	}
+	if _, err := exec.LookPath("gcc"); err != nil {
+		return fmt.Errorf("gcc 安装后仍未检测到，请手动安装")
+	}
+	LogInfo("gcc 安装完成")
+	return nil
+}
+
+func installGCC() error {
+	args := []string{"install", "-y", "build-essential"}
+	LogInfo("apt-get install build-essential")
+	cmd := exec.Command("apt-get", args...)
+	cmd.Env = buildEnv()
+	cmd.Stdout = &logWriter{}
+	cmd.Stderr = &logWriter{}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("apt-get install build-essential 失败: %w", err)
+	}
+	return nil
+}
+
 func buildSource() error {
 	state.SetStatus(StatusBuilding, "正在安装 pnpm...")
 	if err := installPnpm(); err != nil {
 		return fmt.Errorf("install pnpm: %w", err)
+	}
+	if err := ensureGCC(); err != nil {
+		return err
 	}
 	state.SetStatus(StatusBuilding, "正在安装依赖...")
 	if err := runCmd(srcDir, pnpmBin(), "install", "--frozen-lockfile"); err != nil {

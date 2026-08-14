@@ -24,18 +24,18 @@
         </button>
       </div>
 
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-6 border-t border-slate-100 text-sm">
+      <div class="grid grid-cols-3 gap-2 sm:gap-4 mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-slate-100 text-xs sm:text-sm">
         <div>
-          <div class="text-slate-400 text-xs font-medium mb-1.5">运行状态</div>
-          <span class="inline-flex items-center px-3 py-0.5 rounded-full text-xs font-medium border" :class="statusMeta.cls">
-            <Icon v-if="statusMeta.spin" name="spinner" :size="12" class="mr-1.5" />
-            <span v-else class="w-1.5 h-1.5 rounded-full mr-1.5" :class="statusMeta.dot" />
+          <div class="text-slate-400 text-[10px] sm:text-xs font-medium mb-1 sm:mb-1.5">运行状态</div>
+          <span class="inline-flex items-center px-2 sm:px-3 py-0.5 rounded-full text-[10px] sm:text-xs font-medium border" :class="statusMeta.cls">
+            <Icon v-if="statusMeta.spin" name="spinner" :size="12" class="mr-1 sm:mr-1.5" />
+            <span v-else class="w-1 sm:w-1.5 h-1 sm:h-1.5 rounded-full mr-1 sm:mr-1.5" :class="statusMeta.dot" />
             {{ statusMeta.label }}
           </span>
         </div>
         <div v-for="f in infoFields" :key="f.label">
-          <div class="text-slate-400 text-xs font-medium mb-1">{{ f.label }}</div>
-          <div class="text-slate-800 font-medium text-base">{{ f.value }}</div>
+          <div class="text-slate-400 text-[10px] sm:text-xs font-medium mb-0.5 sm:mb-1">{{ f.label }}</div>
+          <div class="text-slate-800 font-medium text-sm sm:text-base truncate">{{ f.value }}</div>
         </div>
       </div>
 
@@ -51,9 +51,9 @@
     <!-- 运行操作 -->
     <div class="space-y-4">
       <h2 class="text-lg font-bold text-slate-800 tracking-tight">运行操作</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5">
+      <div class="grid grid-cols-2 gap-3 sm:gap-5">
         <button v-for="a in actionCards" :key="a.label" @click="doAction(a.action)" :disabled="a.disabled"
-          class="bg-white hover:bg-slate-50 border border-slate-100 rounded-2xl p-6 sm:p-7 flex flex-col items-center justify-center gap-3 transition-colors shadow-sm group disabled:opacity-50 disabled:cursor-not-allowed">
+          class="bg-white hover:bg-slate-50 border border-slate-100 rounded-2xl p-4 sm:p-7 flex flex-col items-center justify-center gap-2 sm:gap-3 transition-colors shadow-sm group disabled:opacity-50 disabled:cursor-not-allowed">
           <div class="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-600 transition-colors" :class="a.hover">
             <Icon :name="a.icon" :size="22" />
           </div>
@@ -99,8 +99,9 @@ const actionCards = computed<ActionCard[]>(() => [
   isRunning.value
     ? { action: 'stop', icon: 'stop', label: '停止服务', hover: 'group-hover:bg-rose-50 group-hover:text-rose-600', disabled: loading.value }
     : { action: 'start', icon: 'play', label: '启动服务', hover: 'group-hover:bg-blue-50 group-hover:text-fnos-blue', disabled: loading.value || isBuilding.value },
-  { action: 'restart', icon: 'refresh', label: '重启服务', hover: 'group-hover:bg-amber-50 group-hover:text-amber-600', disabled: loading.value || !isRunning.value },
-  { action: 'upgrade', icon: 'upload', label: '更新构建', hover: 'group-hover:bg-blue-50 group-hover:text-fnos-blue', disabled: loading.value || isBuilding.value }
+  { action: 'restart', icon: 'refresh', label: '重启服务', hover: 'group-hover:bg-amber-50 group-hover:text-amber-600', disabled: loading.value || !isRunning.value || isBuilding.value },
+  { action: 'upgrade', icon: 'download', label: '拉取更新', hover: 'group-hover:bg-blue-50 group-hover:text-fnos-blue', disabled: loading.value || isBuilding.value },
+  { action: 'rebuild', icon: 'tools', label: '强制重建', hover: 'group-hover:bg-purple-50 group-hover:text-purple-600', disabled: loading.value || isBuilding.value }
 ])
 
 const openApp = async () => {
@@ -118,12 +119,13 @@ const openApp = async () => {
 const doAction = async (action: string) => {
   loading.value = true
   if (action === 'upgrade') {
-    showToast('已触发更新构建，等待后台响应...', 'loading')
+    showToast('已触发拉取更新，等待后台响应...', 'loading')
+  } else if (action === 'rebuild') {
+    showToast('已触发强制重建，等待后台响应...', 'loading')
   }
   const data = await apiPost<StatusData>('action', { action })
   if (data) {
-    // upgrade 是异步任务，HTTP 响应仅代表"已触发"，状态以 SSE 推送为准
-    if (action !== 'upgrade') {
+    if (action !== 'upgrade' && action !== 'rebuild') {
       statusData.value = data
     }
   } else {

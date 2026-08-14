@@ -13,7 +13,7 @@
       <section class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-5">
         <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-3">服务配置</h2>
 
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div v-for="f in portFields" :key="f.key" class="space-y-1">
             <label class="block text-xs font-semibold text-slate-700">{{ f.label }}</label>
             <input type="number" v-model.number="config[f.key]" :placeholder="f.placeholder" :class="inputCls">

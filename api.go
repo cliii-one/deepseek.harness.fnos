@@ -171,7 +171,17 @@ func handleAction(c *gin.Context) {
 			err = Restart()
 		}
 	case "upgrade":
+		if state.Status() == StatusBuilding {
+			RE(c, 1, "正在构建中，请稍候再试")
+			return
+		}
 		Upgrade()
+	case "rebuild":
+		if state.Status() == StatusBuilding {
+			RE(c, 1, "正在构建中，请稍候再试")
+			return
+		}
+		Rebuild()
 	default:
 		RE(c, 1, "未知操作: "+req.Action)
 		return
