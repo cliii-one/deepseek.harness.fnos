@@ -332,7 +332,7 @@ func startReverseProxy() error {
 	proxyHTTPS = &http.Server{Handler: proxyWithAuth(proxy), TLSConfig: tlsCfg}
 	proxyHTTP = &http.Server{Handler: proxyWithAuth(proxy)}
 
-	LogInfo("反址代理启动(HTTP+HTTPS): %s → %s", proxyAddr, proxyTarget.String())
+	LogInfo("反向代理启动(HTTP+HTTPS): %s → %s", proxyAddr, proxyTarget.String())
 
 	go func() {
 		if err := proxyHTTPS.ServeTLS(tlsL, "", ""); err != nil && err != http.ErrServerClosed {

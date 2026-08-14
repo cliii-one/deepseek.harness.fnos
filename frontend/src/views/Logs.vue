@@ -25,34 +25,52 @@
     <!-- 日志终端 -->
     <div ref="logContainer"
       class="flex-1 bg-[#1e222b] rounded-2xl p-4 shadow-inner font-mono text-xs text-slate-200 overflow-y-auto leading-relaxed border border-slate-800">
-      <pre v-if="logText" class="whitespace-pre-wrap break-all">{{ logText }}</pre>
+      <pre v-if="lines.length" class="whitespace-pre-wrap break-all">{{ displayedText }}</pre>
       <div v-else class="text-slate-500 text-center py-20 font-sans">暂无运行日志数据</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { onLogChunk, onReconnect } from '../store'
 import { apiGet, apiDelete } from '../api'
 import { showToast } from '../toast'
 import Icon, { type IconName } from '../components/Icon.vue'
 
-const MAX_LOG_LENGTH = 300 * 1024
+const MAX_LOG_BYTES = 100 * 1024
+const MAX_LINES = 5000
+const FLUSH_INTERVAL = 80
 
-const logText = ref('')
+const lines = ref<string[]>([])
 const autoScroll = ref(true)
 const logContainer = ref<HTMLElement | null>(null)
 let unsubscribe: (() => void) | null = null
+let offReconnect: (() => void) | null = null
 
-const trimLog = () => {
-  if (logText.value.length > MAX_LOG_LENGTH) {
-    const cut = logText.value.indexOf('\n', logText.value.length - MAX_LOG_LENGTH)
-    logText.value = logText.value.slice(cut > 0 ? cut + 1 : -MAX_LOG_LENGTH)
+let pendingBuffer = ''
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+let skipScroll = false
+
+const displayedText = computed(() => lines.value.join(''))
+
+const trimLines = () => {
+  const arr = lines.value
+  let total = 0
+  for (let i = arr.length - 1; i >= 0; i--) {
+    total += arr[i].length
+    if (total > MAX_LOG_BYTES || arr.length - i > MAX_LINES) {
+      lines.value = arr.slice(i + 1)
+      return
+    }
   }
 }
 
 const scrollToBottom = () => {
+  if (skipScroll) {
+    skipScroll = false
+    return
+  }
   nextTick(() => {
     if (logContainer.value && autoScroll.value) {
       logContainer.value.scrollTop = logContainer.value.scrollHeight
@@ -60,19 +78,57 @@ const scrollToBottom = () => {
   })
 }
 
+const flush = () => {
+  flushTimer = null
+  if (!pendingBuffer) return
+  const chunk = pendingBuffer
+  pendingBuffer = ''
+
+  const newLines = chunk.split(/(?<=\n)/)
+  for (const l of newLines) {
+    if (l) lines.value.push(l)
+  }
+  trimLines()
+  scrollToBottom()
+}
+
+const scheduleFlush = () => {
+  if (flushTimer === null) {
+    flushTimer = setTimeout(flush, FLUSH_INTERVAL)
+  }
+}
+
+const appendChunk = (chunk: string) => {
+  pendingBuffer += chunk
+  scheduleFlush()
+}
+
 const fetchLogs = async () => {
+  pendingBuffer = ''
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
   const data = await apiGet<string>('logs')
   if (data !== null) {
-    logText.value = data
-    trimLog()
+    const allLines = data.split(/(?<=\n)/)
+    lines.value = allLines.filter(l => l.length > 0)
+    trimLines()
     scrollToBottom()
+  } else {
+    lines.value = []
   }
 }
 
 const clearLogs = async () => {
   if (!confirm('确定要清空所有运行日志吗？')) return
   if (await apiDelete('logs') !== null) {
-    logText.value = ''
+    pendingBuffer = ''
+    if (flushTimer !== null) {
+      clearTimeout(flushTimer)
+      flushTimer = null
+    }
+    lines.value = []
   } else {
     showToast('清空日志失败', 'warning')
   }
@@ -87,21 +143,18 @@ const tools: { label: string; icon: IconName; onClick: () => void; danger?: bool
   { label: '清空', icon: 'trash', onClick: clearLogs, danger: true }
 ]
 
-let offReconnect: (() => void) | null = null
-
 onMounted(() => {
   fetchLogs()
-  unsubscribe = onLogChunk((chunk) => {
-    logText.value += chunk
-    trimLog()
-    scrollToBottom()
-  })
-  // SSE 断线重连后重新拉取全量日志，补齐断线期间遗漏的内容
+  unsubscribe = onLogChunk(appendChunk)
   offReconnect = onReconnect(fetchLogs)
 })
 
 onUnmounted(() => {
   unsubscribe?.()
   offReconnect?.()
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
 })
 </script>

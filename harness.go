@@ -432,7 +432,7 @@ func buildSource() error {
 		return err
 	}
 	state.SetStatus(StatusBuilding, "正在安装依赖...")
-	if err := runCmd(srcDir, pnpmBin(), "install", "--frozen-lockfile"); err != nil {
+	if err := runCmd(srcDir, pnpmBin(), "install", "--frozen-lockfile", "--registry", "https://registry.npmmirror.com"); err != nil {
 		return fmt.Errorf("pnpm install: %w", err)
 	}
 	state.SetStatus(StatusBuilding, "正在编译构建...")
@@ -467,6 +467,7 @@ func buildEnv() []string {
 	env = appendOrReplace(env, "PATH", path+":/bin:/usr/bin:"+os.Getenv("PATH"))
 	env = appendOrReplace(env, "HOME", filepath.Join(pkgVarDir, "home"))
 	env = appendOrReplace(env, "npm_config_cache", filepath.Join(pkgVarDir, "npm-cache"))
+	env = appendOrReplace(env, "npm_config_registry", "https://registry.npmmirror.com")
 	env = appendOrReplace(env, "PNPM_HOME", filepath.Join(pkgVarDir, "pnpm-home"))
 	env = appendOrReplace(env, "DSH_HOME", filepath.Join(pkgVarDir, "dsh-data"))
 	env = appendOrReplace(env, "DSH_AGENTS_HOME", filepath.Join(pkgVarDir, "dsh-data", "agents"))
