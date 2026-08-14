@@ -1,5 +1,5 @@
 appname               = deepseek.harness
-version               = 0.1.4
+version               = 0.1.5
 display_name          = DeepSeek Harness
 desc                  = DeepSeek Harness 管理应用，支持管理 Harness 服务的启动、停止、重启、源码构建与升级。
 platform              = x86
