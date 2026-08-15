@@ -27,7 +27,7 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div class="space-y-1">
             <label class="block text-xs font-semibold text-slate-700">反向代理地址</label>
             <input type="url" v-model="config.reverse_proxy_url" placeholder="例如 https://dsh.example.com:2299"

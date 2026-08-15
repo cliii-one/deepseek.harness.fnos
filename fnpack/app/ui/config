@@ -1,7 +1,7 @@
 {
     ".url": {
         "deepseek.harness.Application": {
-            "title": "DeepSeek Harness",
+            "title": "Harness Admin",
             "icon": "images/icon_{0}.png",
             "type": "iframe",
             "protocol": "http",
@@ -15,6 +15,15 @@
                 "portPerm": "readonly",
                 "pathPerm": "readonly"
             }
+        },
+        "deepseek.harness.ui.Application": {
+            "title": "Harness WebUI",
+            "icon": "images/icon_{0}.png",
+            "type": "iframe",
+            "protocol": "https",
+            "port": "${wizard_port}",
+            "url": "/",
+            "allUsers": false
         }
     }
 }
