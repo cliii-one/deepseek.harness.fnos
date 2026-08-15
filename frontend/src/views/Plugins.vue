@@ -74,10 +74,26 @@
         </button>
       </div>
 
-      <!-- 加载中 -->
-      <div v-if="loading" class="py-10 text-center">
-        <Icon name="spinner" :size="22" class="text-slate-400 mx-auto" />
-        <p class="text-slate-400 text-sm mt-2">加载中…</p>
+      <!-- 加载骨架 -->
+      <div v-if="loading" class="divide-y divide-slate-100 animate-pulse">
+        <div v-for="i in 3" :key="i" class="py-3.5 space-y-2">
+          <div class="flex items-center gap-2">
+            <div class="h-4 w-40 bg-slate-200 rounded"></div>
+            <div class="h-4 w-14 bg-slate-100 rounded-full"></div>
+            <div class="h-4 w-14 bg-slate-100 rounded-full"></div>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <div class="hidden sm:flex items-center gap-1.5">
+              <div class="h-4 w-16 bg-slate-100 rounded-full"></div>
+              <div class="h-4 w-16 bg-slate-100 rounded-full"></div>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="h-7 w-14 bg-slate-100 rounded-lg"></div>
+              <div class="h-7 w-14 bg-slate-100 rounded-lg"></div>
+              <div class="h-7 w-14 bg-slate-100 rounded-lg"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 空态 -->
