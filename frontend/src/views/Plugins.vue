@@ -27,10 +27,9 @@
       <!-- 命令模式 -->
       <div v-if="mode === 'cmd'" class="space-y-3">
         <div class="space-y-1">
-          <input type="text" v-model="command" :disabled="busy"
-            placeholder="dsh plugin add 包名"
+          <input type="text" v-model="command" :disabled="busy" placeholder="dsh plugin add 包名"
             class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono text-slate-800 focus:outline-none focus:border-fnos-blue focus:bg-white transition-colors disabled:opacity-50">
-          <p class="text-[11px] text-slate-400">例：dsh plugin --profile web add github:user/hello</p>
+          <p class="text-[11px] text-slate-400">例：dsh plugin --profile web add @user/hello</p>
         </div>
 
         <div v-if="command.trim()" :class="[
@@ -46,7 +45,8 @@
 
       <!-- 上传模式 -->
       <div v-else class="space-y-3">
-        <div class="px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-start gap-2 border bg-amber-50 text-amber-600 border-amber-100">
+        <div
+          class="px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-start gap-2 border bg-amber-50 text-amber-600 border-amber-100">
           <Icon name="warning" :size="14" class="mt-0.5 shrink-0" />
           <span>安装脚本将在本机执行，请仅安装可信来源的包。</span>
         </div>
@@ -112,7 +112,8 @@
           <div class="flex flex-wrap items-center gap-2">
             <span class="text-sm font-semibold text-slate-800 truncate min-w-0">{{ p.name }}</span>
             <span v-if="p.version"
-              class="sm:hidden text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">v{{ p.version }}</span>
+              class="sm:hidden text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">v{{
+                p.version }}</span>
             <span class="text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0 border"
               :class="p.layer ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'">
               {{ p.layer ? '已启用' : '未启用' }}
@@ -122,9 +123,11 @@
           <div class="mt-1.5 flex items-center justify-between gap-2">
             <div class="hidden sm:flex items-center gap-1.5 min-w-0">
               <span v-if="p.version"
-                class="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">版本 {{ p.version }}</span>
+                class="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">版本 {{
+                p.version }}</span>
               <span v-if="p.spec"
-                class="text-[10px] font-medium text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full shrink-0">声明 {{ p.spec }}</span>
+                class="text-[10px] font-medium text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full shrink-0">声明
+                {{ p.spec }}</span>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <button v-if="p.layer" @click="toggle(p.name, false)" :disabled="busy"
