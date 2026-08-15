@@ -89,13 +89,12 @@
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
               <span class="text-sm font-semibold text-slate-800 truncate">{{ p.name }}</span>
-              <span v-if="p.version" class="text-[11px] text-slate-400 shrink-0">v{{ p.version }}</span>
               <span v-if="!p.layer"
                 class="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full shrink-0">
-                未激活层
+                未启用
               </span>
             </div>
-            <p v-if="p.spec" class="text-[11px] text-slate-400 mt-0.5 truncate">依赖声明: {{ p.spec }}</p>
+            <p v-if="p.version" class="text-[11px] text-slate-400 mt-0.5 truncate">v{{ p.version }}</p>
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <button v-if="p.layer" @click="toggle(p.name, false)" :disabled="busy"
@@ -121,10 +120,6 @@
           </div>
         </li>
       </ul>
-
-      <p v-if="builtin.length" class="text-[11px] text-slate-400 border-t border-slate-100 pt-3">
-        内置层：{{ builtin.join(' · ') }}（随应用升级自动更新，无需管理）
-      </p>
     </section>
   </div>
 </template>
@@ -166,7 +161,6 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const busy = computed(() => appStore.pluginBusy)
 
 const plugins = ref<PluginItem[]>([])
-const builtin = ref<string[]>([])
 
 const canInstall = computed(() => {
   if (busy.value) return false
@@ -201,7 +195,6 @@ const refresh = async () => {
   const res = await apiGet<PluginList>('plugins')
   if (res?.ok && res.data) {
     plugins.value = res.data.plugins || []
-    builtin.value = res.data.builtin || []
   }
 }
 
