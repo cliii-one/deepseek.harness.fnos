@@ -24,3 +24,8 @@ const jsonInit = (method: string, body?: unknown): RequestInit => ({
 export const apiGet = <T>(path: string) => request<T>(path)
 export const apiPost = <T>(path: string, body?: unknown) => request<T>(path, jsonInit('POST', body))
 export const apiDelete = <T>(path: string) => request<T>(path, { method: 'DELETE' })
+export const apiUpload = <T>(path: string, file: File) => {
+  const fd = new FormData()
+  fd.append('file', file)
+  return request<T>(path, { method: 'POST', body: fd })
+}

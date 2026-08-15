@@ -8,7 +8,7 @@
         <Icon name="workspace" :size="28" class="text-slate-400" />
       </div>
       <p class="text-slate-500 text-sm">暂无工作区数据</p>
-      <p class="text-slate-400 text-xs mt-1">请确保 DeepSeek Harness 服务正在运行</p>
+      <p class="text-slate-400 text-xs mt-1">请先运行 DeepSeek Harness 并创建工作区</p>
     </div>
 
     <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -49,7 +49,7 @@ func main() {
 
 	WebFS = embeddedWebFS
 	InitRoutes(r)
-	StartWorkspacePolling()
+	StartWorkspaceWatch()
 
 	_ = os.MkdirAll(appdest, 0755)
 	socketPath := filepath.Join(appdest, "web.sock")

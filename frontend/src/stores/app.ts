@@ -28,8 +28,15 @@ export interface WorkspaceData {
   archivedSessionIds: string[]
 }
 
+export interface PluginStatus {
+  running: boolean
+  ok?: boolean
+  message?: string
+}
+
 const logListeners = new Set<(chunk: string) => void>()
 const reconnectListeners = new Set<() => void>()
+const pluginListeners = new Set<(s: PluginStatus) => void>()
 
 export const useAppStore = defineStore('app', () => {
   const statusData = ref<StatusData>({
@@ -50,6 +57,11 @@ export const useAppStore = defineStore('app', () => {
   })
 
   const wsConnected = ref(true)
+  const currentTab = ref('overview')
+
+  function setTab(tab: string) {
+    currentTab.value = tab
+  }
 
   let ws: WebSocket | null = null
   let opened = false
@@ -91,6 +103,8 @@ export const useAppStore = defineStore('app', () => {
         workspaceData.value = msg.data as WorkspaceData
       } else if (msg.type === 'log' && typeof msg.data === 'string') {
         logListeners.forEach(fn => fn(msg.data as string))
+      } else if (msg.type === 'plugin' && msg.data) {
+        pluginListeners.forEach(fn => fn(msg.data as PluginStatus))
       }
     }
 
@@ -123,13 +137,21 @@ export const useAppStore = defineStore('app', () => {
     return () => { reconnectListeners.delete(fn) }
   }
 
+  function onPluginEvent(fn: (s: PluginStatus) => void): () => void {
+    pluginListeners.add(fn)
+    return () => { pluginListeners.delete(fn) }
+  }
+
   return {
     statusData,
     workspaceData,
     wsConnected,
+    currentTab,
+    setTab,
     connectWS,
     fetchWorkspaceData,
     onLogChunk,
-    onReconnect
+    onReconnect,
+    onPluginEvent
   }
 })

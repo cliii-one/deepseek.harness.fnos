@@ -16,12 +16,16 @@ GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o fnpack/app/bin/de
 
 echo "[INFO] 正在调用 fnpack 构建 fpk 安装包..."
 cd fnpack
-if command -v fnpack-1.2.3-windows-amd64 &> /dev/null; then
-    fnpack-1.2.3-windows-amd64 build
-elif command -v fnpack &> /dev/null; then
-    fnpack build
+# 使用 fnpack 目录下的本地打包 CLI
+case "$(uname -s)" in
+    Linux*) FP_BIN="fnpack-1.2.3-linux-amd64" ;;
+    MINGW*|MSYS*|CYGWIN*) FP_BIN="fnpack-1.2.3-windows-amd64" ;;
+    *) FP_BIN="" ;;
+esac
+if [ -n "$FP_BIN" ] && [ -x "./$FP_BIN" ]; then
+    "./$FP_BIN" build
 else
-    echo "[WARN] 未检测到 fnpack 打包 CLI 工具，跳过 fpk 生成"
+    echo "[WARN] fnpack 目录下未找到本地打包 CLI（$FP_BIN），跳过 fpk 生成"
 fi
 cd ..
 

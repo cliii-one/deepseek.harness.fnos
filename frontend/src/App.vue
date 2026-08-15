@@ -32,11 +32,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, type Component } from 'vue'
+import { computed, onMounted, type Component } from 'vue'
 import Overview from './views/Overview.vue'
 import Logs from './views/Logs.vue'
 import Settings from './views/Settings.vue'
 import Workspace from './views/Workspace.vue'
+import Plugins from './views/Plugins.vue'
 import NavItem from './components/NavItem.vue'
 import Toasts from './components/Toasts.vue'
 import Icon from './components/Icon.vue'
@@ -45,24 +46,29 @@ import type { IconName } from './components/Icon.vue'
 
 const appStore = useAppStore()
 
-type TabKey = 'overview' | 'workspace' | 'logs' | 'settings'
+type TabKey = 'overview' | 'workspace' | 'logs' | 'plugins' | 'settings'
 
-const views: Record<TabKey, Component> = { overview: Overview, workspace: Workspace, logs: Logs, settings: Settings }
+const views: Record<TabKey, Component> = { overview: Overview, workspace: Workspace, logs: Logs, plugins: Plugins, settings: Settings }
 
 const mainTabs: { key: TabKey; label: string; icon: IconName }[] = [
   { key: 'overview', label: '概览', icon: 'grid' },
   { key: 'workspace', label: '工作区', icon: 'workspace' },
-  { key: 'logs', label: '日志', icon: 'file' }
+  { key: 'logs', label: '日志', icon: 'file' },
+  { key: 'plugins', label: '插件', icon: 'puzzle' }
 ]
 
 const mobileTabs: { key: TabKey; label: string; icon: IconName }[] = [
   { key: 'overview', label: '概览', icon: 'grid' },
   { key: 'workspace', label: '工作区', icon: 'workspace' },
   { key: 'logs', label: '日志', icon: 'file' },
+  { key: 'plugins', label: '插件', icon: 'puzzle' },
   { key: 'settings', label: '设置', icon: 'settings' }
 ]
 
-const tab = ref<TabKey>('overview')
+const tab = computed<TabKey>({
+  get: () => appStore.currentTab as TabKey,
+  set: v => appStore.setTab(v)
+})
 const currentView = computed(() => views[tab.value])
 
 onMounted(() => appStore.connectWS())
