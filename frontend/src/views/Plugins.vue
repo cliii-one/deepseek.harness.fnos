@@ -4,10 +4,10 @@
 
     <!-- 安装插件 -->
     <section class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-5">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+      <div class="flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
         <h2 class="text-sm font-bold text-slate-800">安装插件</h2>
         <button @click="install" :disabled="!canInstall"
-          class="px-5 py-2 bg-fnos-blue hover:bg-fnos-blue-hover disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium rounded-xl text-sm transition-colors shadow-sm flex items-center gap-2 self-end sm:self-auto">
+          class="px-5 py-2 bg-fnos-blue hover:bg-fnos-blue-hover disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium rounded-xl text-sm transition-colors shadow-sm flex items-center gap-2">
           <Icon v-if="busy" name="spinner" :size="14" />
           <span>{{ busy ? '正在执行…' : '安装' }}</span>
         </button>
@@ -65,7 +65,7 @@
 
     <!-- 已安装插件 -->
     <section class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-4">
-      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+      <div class="flex items-center justify-between gap-3">
         <h2 class="text-sm font-bold text-slate-800">已安装插件 ({{ plugins.length }})</h2>
         <button @click="refresh" :disabled="busy"
           class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1.5 disabled:opacity-50">
