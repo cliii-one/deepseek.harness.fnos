@@ -74,8 +74,14 @@
         </button>
       </div>
 
+      <!-- 加载中 -->
+      <div v-if="loading" class="py-10 text-center">
+        <Icon name="spinner" :size="22" class="text-slate-400 mx-auto" />
+        <p class="text-slate-400 text-sm mt-2">加载中…</p>
+      </div>
+
       <!-- 空态 -->
-      <div v-if="!plugins.length" class="py-10 text-center">
+      <div v-else-if="!plugins.length" class="py-10 text-center">
         <div class="w-14 h-14 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
           <Icon name="box" :size="26" class="text-slate-400" />
         </div>
@@ -170,6 +176,7 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const busy = computed(() => appStore.pluginBusy)
 
 const plugins = ref<PluginItem[]>([])
+const loading = ref(false)
 
 const canInstall = computed(() => {
   if (busy.value) return false
@@ -201,9 +208,14 @@ const onFileChange = (e: Event) => {
 }
 
 const refresh = async () => {
-  const res = await apiGet<PluginList>('plugins')
-  if (res?.ok && res.data) {
-    plugins.value = res.data.plugins || []
+  loading.value = true
+  try {
+    const res = await apiGet<PluginList>('plugins')
+    if (res?.ok && res.data) {
+      plugins.value = res.data.plugins || []
+    }
+  } finally {
+    loading.value = false
   }
 }
 
