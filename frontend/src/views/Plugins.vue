@@ -85,38 +85,47 @@
 
       <!-- 插件列表 -->
       <ul v-else class="divide-y divide-slate-100">
-        <li v-for="p in plugins" :key="p.name" class="py-3.5 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-semibold text-slate-800 truncate">{{ p.name }}</span>
-              <span v-if="!p.layer"
-                class="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full shrink-0">
-                未启用
-              </span>
-            </div>
-            <p v-if="p.version" class="text-[11px] text-slate-400 mt-0.5 truncate">v{{ p.version }}</p>
+        <li v-for="p in plugins" :key="p.name" class="py-3.5">
+          <!-- 主行：名称 + 移动端版本徽章 + 状态徽章 -->
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-sm font-semibold text-slate-800 truncate min-w-0">{{ p.name }}</span>
+            <span v-if="p.version"
+              class="sm:hidden text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">v{{ p.version }}</span>
+            <span class="text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0 border"
+              :class="p.layer ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'">
+              {{ p.layer ? '已启用' : '未启用' }}
+            </span>
           </div>
-          <div class="flex items-center gap-2 shrink-0">
-            <button v-if="p.layer" @click="toggle(p.name, false)" :disabled="busy"
-              class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 transition-colors flex items-center gap-1 disabled:opacity-50">
-              <Icon name="stop" :size="12" />
-              <span>禁用</span>
-            </button>
-            <button v-else @click="toggle(p.name, true)" :disabled="busy"
-              class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-colors flex items-center gap-1 disabled:opacity-50">
-              <Icon name="play" :size="12" />
-              <span>启用</span>
-            </button>
-            <button @click="quickOp('update', p.name)" :disabled="busy"
-              class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-blue-50 hover:text-fnos-blue hover:border-blue-200 transition-colors flex items-center gap-1 disabled:opacity-50">
-              <Icon name="refresh" :size="12" />
-              <span>更新</span>
-            </button>
-            <button @click="uninstall(p.name)" :disabled="busy"
-              class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-colors flex items-center gap-1 disabled:opacity-50">
-              <Icon name="trash" :size="12" />
-              <span>卸载</span>
-            </button>
+          <!-- 副行：桌面端版本/声明徽章 + 操作按钮 -->
+          <div class="mt-1.5 flex items-center justify-between gap-2">
+            <div class="hidden sm:flex items-center gap-1.5 min-w-0">
+              <span v-if="p.version"
+                class="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">v{{ p.version }}</span>
+              <span v-if="p.spec"
+                class="text-[10px] font-medium text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full shrink-0">声明 {{ p.spec }}</span>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <button v-if="p.layer" @click="toggle(p.name, false)" :disabled="busy"
+                class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 transition-colors flex items-center gap-1 disabled:opacity-50">
+                <Icon name="stop" :size="12" />
+                <span>禁用</span>
+              </button>
+              <button v-else @click="toggle(p.name, true)" :disabled="busy"
+                class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-colors flex items-center gap-1 disabled:opacity-50">
+                <Icon name="play" :size="12" />
+                <span>启用</span>
+              </button>
+              <button @click="quickOp('update', p.name)" :disabled="busy"
+                class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-blue-50 hover:text-fnos-blue hover:border-blue-200 transition-colors flex items-center gap-1 disabled:opacity-50">
+                <Icon name="refresh" :size="12" />
+                <span>更新</span>
+              </button>
+              <button @click="uninstall(p.name)" :disabled="busy"
+                class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-colors flex items-center gap-1 disabled:opacity-50">
+                <Icon name="trash" :size="12" />
+                <span>卸载</span>
+              </button>
+            </div>
           </div>
         </li>
       </ul>
