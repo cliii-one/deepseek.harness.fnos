@@ -103,7 +103,7 @@ func yamlEntryName(trimmed string) string {
 }
 
 // mergeAllowBuildsEntries 文本级合并 allowBuilds 块（保留文件其余内容与注释）。
-// 无 allowBuilds 块则追加；有则去重补插。
+// 无块则追加；已有条目仅布尔值保留，非法值（如占位串）改写为 true，缺失补插。
 func mergeAllowBuildsEntries(yamlPath string, pkgs []string) error {
 	content := ""
 	if data, err := os.ReadFile(yamlPath); err == nil {
@@ -114,7 +114,7 @@ func mergeAllowBuildsEntries(yamlPath string, pkgs []string) error {
 	lines := strings.Split(content, "\n")
 
 	idx := -1
-	existing := map[string]bool{}
+	entryLine := map[string]int{}
 	for i, l := range lines {
 		trimmed := strings.TrimSpace(l)
 		if idx < 0 {
@@ -126,7 +126,7 @@ func mergeAllowBuildsEntries(yamlPath string, pkgs []string) error {
 		// 块内：缩进行收集条目，空白/注释继续，回到根级则块结束
 		if trimmed == "" || strings.HasPrefix(l, " ") || strings.HasPrefix(l, "\t") {
 			if name := yamlEntryName(trimmed); name != "" {
-				existing[name] = true
+				entryLine[name] = i
 			}
 			continue
 		}
@@ -134,12 +134,23 @@ func mergeAllowBuildsEntries(yamlPath string, pkgs []string) error {
 	}
 
 	var missing []string
+	var fix []int
 	for _, p := range pkgs {
-		if !existing[p] {
+		i, ok := entryLine[p]
+		if !ok {
 			missing = append(missing, p)
+			continue
+		}
+		parts := strings.SplitN(strings.TrimSpace(lines[i]), ":", 2)
+		val := ""
+		if len(parts) >= 2 {
+			val = strings.TrimSpace(parts[1])
+		}
+		if val != "true" && val != "false" {
+			fix = append(fix, i)
 		}
 	}
-	if len(missing) == 0 {
+	if len(missing) == 0 && len(fix) == 0 {
 		return nil
 	}
 	sort.Strings(missing)
@@ -150,6 +161,10 @@ func mergeAllowBuildsEntries(yamlPath string, pkgs []string) error {
 			content += "  " + p + ": true\n"
 		}
 	} else {
+		for _, i := range fix {
+			name := yamlEntryName(strings.TrimSpace(lines[i]))
+			lines[i] = "  " + name + ": true"
+		}
 		var out []string
 		out = append(out, lines[:idx+1]...)
 		for _, p := range missing {
@@ -164,8 +179,7 @@ func mergeAllowBuildsEntries(yamlPath string, pkgs []string) error {
 	return os.WriteFile(yamlPath, []byte(content), 0644)
 }
 
-// removeAllowBuildsEntries 删除指定包的 allowBuilds 条目（仅 "  name: true" 缩进行，
-// 用户手写的 false 条目保留）
+// removeAllowBuildsEntries 删除指定包的 allowBuilds 条目（自动 true 及占位等非法条目；用户手写的 false 保留）
 func removeAllowBuildsEntries(yamlPath string, pkgs []string) error {
 	data, err := os.ReadFile(yamlPath)
 	if err != nil {
@@ -181,10 +195,12 @@ func removeAllowBuildsEntries(yamlPath string, pkgs []string) error {
 	lines := strings.Split(string(data), "\n")
 	out := make([]string, 0, len(lines))
 	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
 		if (strings.HasPrefix(l, " ") || strings.HasPrefix(l, "\t")) &&
-			strings.HasSuffix(strings.TrimSpace(l), ": true") {
-			name := strings.TrimSuffix(strings.TrimSpace(l), ": true")
-			if drop[name] {
+			trimmed != "" && !strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, "-") {
+			parts := strings.SplitN(trimmed, ":", 2)
+			name := strings.TrimSpace(parts[0])
+			if drop[name] && (len(parts) < 2 || strings.TrimSpace(parts[1]) != "false") {
 				continue
 			}
 		}
