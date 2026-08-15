@@ -83,16 +83,11 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { apiGet, apiPost } from '../api'
+import { useAppStore, type SettingsConfig } from '../stores/app'
 
-interface HarnessConfig {
-  server_port: number
-  proxy_port: number
-  network_proxy: string
-  reverse_proxy_url: string
-  access_password: string
-}
+const appStore = useAppStore()
 
-const config = ref<HarnessConfig>({
+const config = ref<SettingsConfig>({
   server_port: 3080,
   proxy_port: 2299,
   network_proxy: '',
@@ -111,22 +106,28 @@ const saveError = ref(false)
 const loadError = ref(false)
 const configLoaded = ref(false)
 let skipWatch = true
-let savedConfig: HarnessConfig | null = null
+let savedConfig: SettingsConfig | null = null
 
 onMounted(async () => {
-  const res = await apiGet<Partial<HarnessConfig>>('config')
-  if (res?.ok && res.data) {
-    config.value = { ...config.value, ...res.data }
-    savedConfig = { ...config.value }
+  if (appStore.settingsConfig) {
+    config.value = { ...appStore.settingsConfig }
+    savedConfig = appStore.savedSettingsConfig ? { ...appStore.savedSettingsConfig } : { ...config.value }
   } else {
-    // 加载失败禁用保存，防默认值覆盖
-    loadError.value = true
+    const res = await apiGet<Partial<SettingsConfig>>('config')
+    if (res?.ok && res.data) {
+      config.value = { ...config.value, ...res.data }
+      savedConfig = { ...config.value }
+      appStore.settingsConfig = { ...config.value }
+      appStore.savedSettingsConfig = { ...savedConfig }
+    } else {
+      loadError.value = true
+    }
   }
   skipWatch = false
   configLoaded.value = true
 })
 
-function configsEqual(a: HarnessConfig, b: HarnessConfig): boolean {
+function configsEqual(a: SettingsConfig, b: SettingsConfig): boolean {
   return (
     a.server_port === b.server_port &&
     a.proxy_port === b.proxy_port &&
@@ -138,15 +139,17 @@ function configsEqual(a: HarnessConfig, b: HarnessConfig): boolean {
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 watch(config, (cfg) => {
+  appStore.settingsConfig = { ...cfg }
   if (skipWatch || loadError.value) return
   if (savedConfig && configsEqual(cfg, savedConfig)) return
-  // 保存防抖
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(async () => {
-    const res = await apiPost<HarnessConfig>('config', cfg)
+    const res = await apiPost<SettingsConfig>('config', cfg)
     saveError.value = !(res?.ok ?? false)
     if (res?.ok && res.data) {
       savedConfig = { ...res.data }
+      appStore.settingsConfig = { ...res.data }
+      appStore.savedSettingsConfig = { ...res.data }
     }
   }, 400)
 }, { deep: true })

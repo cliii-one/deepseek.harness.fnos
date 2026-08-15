@@ -88,7 +88,7 @@ const toastStore = useToastStore()
 const statusData = computed(() => appStore.statusData)
 const wsConnected = computed(() => appStore.wsConnected)
 
-const loading = ref(false)
+const loading = computed(() => appStore.actionBusy)
 const dataLibraryPath = ref('')
 let trimApp: TrimApp | null = null
 
@@ -178,13 +178,13 @@ const openApp = async () => {
 }
 
 const doAction = async (action: string) => {
-  loading.value = true
+  appStore.actionBusy = true
   const res = await apiPost('action', { action })
   if (!res) {
     toastStore.showToast('网络连接失败')
   } else if (!res.ok) {
     toastStore.showToast(res.message)
   }
-  loading.value = false
+  appStore.actionBusy = false
 }
 </script>

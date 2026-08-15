@@ -131,6 +131,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useAppStore, type PluginStatus } from '../stores/app'
 import { useToastStore } from '../stores/toast'
 import { apiGet, apiPost, apiUpload } from '../api'
@@ -159,12 +160,8 @@ interface PluginList {
   bundles: string[]
 }
 
-type InstallMode = 'cmd' | 'upload'
-
-const mode = ref<InstallMode>('cmd')
-const command = ref('')
+const { pluginCmd: command, pluginMode: mode, pluginFile: file } = storeToRefs(appStore)
 const preview = ref<PluginPreview | null>(null)
-const file = ref<File | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const busy = computed(() => appStore.pluginBusy)
 

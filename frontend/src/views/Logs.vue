@@ -33,6 +33,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useAppStore } from '../stores/app'
 import { useToastStore } from '../stores/toast'
 import { apiGet, apiDelete } from '../api'
@@ -40,13 +41,10 @@ import Icon, { type IconName } from '../components/Icon.vue'
 
 const appStore = useAppStore()
 const toastStore = useToastStore()
+const { logLines: lines, logAutoScroll: autoScroll } = storeToRefs(appStore)
 
-const MAX_LOG_BYTES = 100 * 1024
-const MAX_LINES = 5000
 const FLUSH_INTERVAL = 80
 
-const lines = ref<string[]>([])
-const autoScroll = ref(true)
 const logContainer = ref<HTMLElement | null>(null)
 let unsubscribe: (() => void) | null = null
 let offReconnect: (() => void) | null = null
@@ -58,18 +56,6 @@ let skipScroll = false
 let fetching = false
 
 const displayedText = computed(() => lines.value.join(''))
-
-const trimLines = () => {
-  const arr = lines.value
-  let total = 0
-  for (let i = arr.length - 1; i >= 0; i--) {
-    total += arr[i].length
-    if (total > MAX_LOG_BYTES || arr.length - i > MAX_LINES) {
-      lines.value = arr.slice(i + 1)
-      return
-    }
-  }
-}
 
 const scrollToBottom = () => {
   if (skipScroll) {
@@ -91,9 +77,8 @@ const flush = () => {
 
   const newLines = chunk.split(/(?<=\n)/)
   for (const l of newLines) {
-    if (l) lines.value.push(l)
+    if (l) appStore.appendLog(l)
   }
-  trimLines()
   scrollToBottom()
 }
 
@@ -122,8 +107,7 @@ const fetchLogs = async () => {
   // 拼接拉取窗口内的 WS 增量
   const extraLines = pendingBuffer.split(/(?<=\n)/).filter(l => l.length > 0)
   pendingBuffer = ''
-  lines.value = [...allLines, ...extraLines]
-  trimLines()
+  appStore.setLogs([...allLines, ...extraLines])
   scrollToBottom()
   fetching = false
 }
@@ -139,7 +123,7 @@ const clearLogs = async () => {
       clearTimeout(flushTimer)
       flushTimer = null
     }
-    lines.value = []
+    appStore.clearLogs()
   } else {
     toastStore.showToast(res.message)
   }

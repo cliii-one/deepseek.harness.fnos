@@ -34,6 +34,14 @@ export interface PluginStatus {
   message?: string
 }
 
+export interface SettingsConfig {
+  server_port: number
+  proxy_port: number
+  network_proxy: string
+  reverse_proxy_url: string
+  access_password: string
+}
+
 const logListeners = new Set<(chunk: string) => void>()
 const reconnectListeners = new Set<() => void>()
 const pluginListeners = new Set<(s: PluginStatus) => void>()
@@ -59,6 +67,39 @@ export const useAppStore = defineStore('app', () => {
   const wsConnected = ref(true)
   const currentTab = ref('overview')
   const pluginBusy = ref(false)
+  const actionBusy = ref(false)
+  const logLines = ref<string[]>([])
+  const logAutoScroll = ref(true)
+  const settingsConfig = ref<SettingsConfig | null>(null)
+  const savedSettingsConfig = ref<SettingsConfig | null>(null)
+  const pluginCmd = ref('')
+  const pluginMode = ref<'cmd' | 'upload'>('cmd')
+  const pluginFile = ref<File | null>(null)
+
+  const MAX_LOG_BYTES = 100 * 1024
+  const MAX_LOG_LINES = 5000
+  function trimLogs() {
+    const arr = logLines.value
+    let total = 0
+    for (let i = arr.length - 1; i >= 0; i--) {
+      total += arr[i].length
+      if (total > MAX_LOG_BYTES || arr.length - i > MAX_LOG_LINES) {
+        arr.splice(0, i + 1)
+        return
+      }
+    }
+  }
+  function appendLog(chunk: string) {
+    logLines.value.push(chunk)
+    trimLogs()
+  }
+  function setLogs(lines: string[]) {
+    logLines.value = lines
+    trimLogs()
+  }
+  function clearLogs() {
+    logLines.value = []
+  }
 
   function setTab(tab: string) {
     currentTab.value = tab
@@ -151,11 +192,22 @@ export const useAppStore = defineStore('app', () => {
     wsConnected,
     currentTab,
     pluginBusy,
+    actionBusy,
+    logLines,
+    logAutoScroll,
+    settingsConfig,
+    savedSettingsConfig,
+    pluginCmd,
+    pluginMode,
+    pluginFile,
     setTab,
     connectWS,
     fetchWorkspaceData,
     onLogChunk,
     onReconnect,
-    onPluginEvent
+    onPluginEvent,
+    appendLog,
+    setLogs,
+    clearLogs
   }
 })
