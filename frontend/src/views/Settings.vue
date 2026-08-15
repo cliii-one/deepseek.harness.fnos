@@ -111,11 +111,13 @@ const saveError = ref(false)
 const loadError = ref(false)
 const configLoaded = ref(false)
 let skipWatch = true
+let savedConfig: HarnessConfig | null = null
 
 onMounted(async () => {
   const res = await apiGet<Partial<HarnessConfig>>('config')
   if (res?.ok && res.data) {
     config.value = { ...config.value, ...res.data }
+    savedConfig = { ...config.value }
   } else {
     // 加载失败禁用保存，防默认值覆盖
     loadError.value = true
@@ -124,14 +126,28 @@ onMounted(async () => {
   configLoaded.value = true
 })
 
+function configsEqual(a: HarnessConfig, b: HarnessConfig): boolean {
+  return (
+    a.server_port === b.server_port &&
+    a.proxy_port === b.proxy_port &&
+    a.network_proxy === b.network_proxy &&
+    a.reverse_proxy_url === b.reverse_proxy_url &&
+    a.access_password === b.access_password
+  )
+}
+
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 watch(config, (cfg) => {
   if (skipWatch || loadError.value) return
+  if (savedConfig && configsEqual(cfg, savedConfig)) return
   // 保存防抖
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(async () => {
     const res = await apiPost<HarnessConfig>('config', cfg)
     saveError.value = !(res?.ok ?? false)
+    if (res?.ok && res.data) {
+      savedConfig = { ...res.data }
+    }
   }, 400)
 }, { deep: true })
 </script>

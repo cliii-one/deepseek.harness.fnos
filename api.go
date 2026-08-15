@@ -31,6 +31,7 @@ func InitRoutes(r *gin.Engine) {
 		api.GET("/logs/download", handleDownloadLogs)
 		api.GET("/config", handleGetConfig)
 		api.POST("/config", handleSaveConfig)
+		api.GET("/workspace/list", handleGetWorkspaces)
 	}
 
 	sub, err := fs.Sub(WebFS, "frontend/dist")
@@ -129,12 +130,15 @@ func handleWS(c *gin.Context) {
 
 	// 连接即快照
 	writeJSON(wsMsg{Type: "status", Data: statusPayload()})
+	writeJSON(wsMsg{Type: "workspace", Data: GetWorkspaces()})
 
 	// 事件驱动：状态与日志变更即时推送
 	stateCh, unsubscribeState := state.SubscribeState(16)
 	defer unsubscribeState()
 	logCh, unsubscribeLog := SubscribeLog(256)
 	defer unsubscribeLog()
+	wsCh, unsubscribeWs := SubscribeWorkspace(16)
+	defer unsubscribeWs()
 
 	// 读循环：消费控制帧并检测断开
 	done := make(chan struct{})
@@ -158,6 +162,8 @@ func handleWS(c *gin.Context) {
 			writeJSON(wsMsg{Type: "status", Data: statusPayload()})
 		case chunk := <-logCh:
 			writeJSON(wsMsg{Type: "log", Data: chunk})
+		case <-wsCh:
+			writeJSON(wsMsg{Type: "workspace", Data: GetWorkspaces()})
 		case <-heartbeat.C:
 			// 心跳 ping，防代理空闲断连
 			writeMu.Lock()
@@ -264,6 +270,11 @@ func handleSaveConfig(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
 		return
 	}
+	
+	// 比较配置是否真正变化
+	oldCfg := GetConfig()
+	proxyChanged := oldCfg.ServerPort != cfg.ServerPort || oldCfg.ProxyPort != cfg.ProxyPort
+	
 	cfg.BuildTime = GetBuildTime()
 	cfg.Version = GetVersion()
 	cfg.Commit = GetCommit()
@@ -271,8 +282,11 @@ func handleSaveConfig(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "保存失败: "+err.Error())
 		return
 	}
-	// 保存后热更新反向代理并广播状态变更
-	restartReverseProxy()
+	
+	// 当代理配置变化时重启反向代理
+	if proxyChanged {
+		restartReverseProxy()
+	}
 	state.Poke()
 	OK(c, cfg)
 }

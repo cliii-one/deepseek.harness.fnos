@@ -16,8 +16,6 @@ import (
 	"time"
 )
 
-const harnessProcessPattern = "pnpm-env/node_modules/.bin/pnpm dsh web"
-
 const repoURL = "https://github.com/deepseek-ai/deepseek-harness"
 
 const (
@@ -43,7 +41,6 @@ func (s *HarnessState) SetStatus(status, msg string) {
 	s.status = status
 	s.lastMessage = msg
 	if becameRunning {
-		// 仅在变为运行中时重置计时
 		s.startTime = time.Now()
 	}
 	s.mu.Unlock()
@@ -78,7 +75,6 @@ func (s *HarnessState) Snapshot() (status, uptime, lastMsg, commit, version, bui
 	return
 }
 
-// notify 广播状态变更事件给订阅者
 func (s *HarnessState) notify() {
 	s.mu.RLock()
 	subs := make([]chan struct{}, 0, len(s.stateSubs))
@@ -94,7 +90,6 @@ func (s *HarnessState) notify() {
 	}
 }
 
-// SubscribeState 订阅状态变更事件，返回的取消函数用于退订
 func (s *HarnessState) SubscribeState(buf int) (<-chan struct{}, func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -107,15 +102,19 @@ func (s *HarnessState) SubscribeState(buf int) (<-chan struct{}, func()) {
 	}
 }
 
-// Poke 强制广播一次状态变更
 func (s *HarnessState) Poke() {
 	s.notify()
 }
 
+type managedProcess struct {
+	cmd           *exec.Cmd
+	stopRequested bool
+	done          chan struct{}
+}
+
 var (
 	procMu    sync.Mutex
-	process   *exec.Cmd
-	stopping  bool
+	process   *managedProcess
 	srcDir    string
 	appDest   string
 	pkgVarDir string
@@ -127,7 +126,6 @@ const gitBin = "/usr/bin/git"
 func npmBin() string  { return filepath.Join(nodeBinDir, "npm") }
 func pnpmBin() string { return filepath.Join(pkgVarDir, "pnpm-env", "node_modules", ".bin", "pnpm") }
 
-// InitHarness 初始化 harness 进程管理器
 func InitHarness(pkgVar, appdest string) {
 	pkgVarDir = pkgVar
 	srcDir = filepath.Join(pkgVar, "src", "deepseek-harness")
@@ -164,17 +162,17 @@ func InitHarness(pkgVar, appdest string) {
 				return
 			}
 			refreshCommit()
+			state.SetStatus(StatusStopped, "")
 			LogInfo("安装完成，启动服务...")
-			procMu.Lock()
-			_ = startLocked()
-			procMu.Unlock()
+			if err := Start(); err != nil {
+				LogWarning("启动失败: %s", err)
+			}
 		}()
 		return
 	}
 
 	refreshCommit()
 
-	// srcDir 已存在，zip 无用，清理残留
 	zipPath := filepath.Join(appDest, "deepseek-harness.zip")
 	if _, err := os.Stat(zipPath); err == nil {
 		_ = os.Remove(zipPath)
@@ -185,6 +183,7 @@ func InitHarness(pkgVar, appdest string) {
 func Start() error {
 	procMu.Lock()
 	defer procMu.Unlock()
+
 	if state.Status() == StatusBuilding {
 		return fmt.Errorf("正在构建中，请稍候再试")
 	}
@@ -197,12 +196,12 @@ func Start() error {
 	if _, err := os.Stat(filepath.Join(srcDir, "node_modules")); os.IsNotExist(err) {
 		return fmt.Errorf("依赖未安装，请先点击【强制重建】进行构建")
 	}
+
 	return startLocked()
 }
 
 func startLocked() error {
-	KillHarness()
-	time.Sleep(300 * time.Millisecond)
+	killHarnessLocked()
 
 	cfg := GetConfig()
 	port := cfg.ServerPort
@@ -223,138 +222,223 @@ func startLocked() error {
 		state.SetStatus(StatusStopped, "启动失败: "+err.Error())
 		return err
 	}
-	process = cmd
-	state.SetStatus(StatusRunning, "")
-	LogInfo("启动成功，PID=%d", cmd.Process.Pid)
+
+	mp := &managedProcess{cmd: cmd, done: make(chan struct{})}
+	process = mp
 
 	_ = os.WriteFile(pidFilePath(), []byte(strconv.Itoa(cmd.Process.Pid)), 0644)
 
+	state.SetStatus(StatusRunning, "")
+	LogInfo("启动成功，PID=%d", cmd.Process.Pid)
+
 	startReverseProxy()
 
-	go func() {
-		err := cmd.Wait()
-		KillHarness()
+	go func(mp *managedProcess) {
+		err := mp.cmd.Wait()
 
 		procMu.Lock()
-		wasStopping := stopping
-		stopping = false
+		current := process
+		if current == mp {
+			process = nil
+			removePidFileIfMatches(mp.cmd.Process.Pid)
+			stopReverseProxy()
+
+			if mp.stopRequested {
+				state.SetStatus(StatusStopped, "")
+			} else if err != nil {
+				LogWarning("进程意外退出: %s", err)
+				state.SetStatus(StatusStopped, "进程意外退出: "+err.Error())
+			} else {
+				state.SetStatus(StatusStopped, "")
+			}
+		} else {
+			removePidFileIfMatches(mp.cmd.Process.Pid)
+		}
 		procMu.Unlock()
 
-		stopReverseProxy()
-		if wasStopping {
-			state.SetStatus(StatusStopped, "")
-			return
-		}
-		if err != nil {
-			LogWarning("进程退出: %s", err)
-			state.SetStatus(StatusStopped, "进程意外退出: "+err.Error())
-		} else {
-			state.SetStatus(StatusStopped, "")
-		}
-	}()
+		close(mp.done)
+	}(mp)
+
 	return nil
 }
 
-func Stop() error {
+func stopAndWait() {
 	procMu.Lock()
-	defer procMu.Unlock()
-	return stopLocked()
+	mp := process
+	if mp != nil {
+		mp.stopRequested = true
+		LogInfo("停止进程 PID=%d", mp.cmd.Process.Pid)
+		killProcessGroup(mp.cmd.Process.Pid)
+		removePidFileIfMatches(mp.cmd.Process.Pid)
+	}
+	procMu.Unlock()
+
+	if mp != nil {
+		<-mp.done
+	}
 }
 
-func stopLocked() error {
-	KillHarness()
-	stopReverseProxy()
-	state.SetStatus(StatusStopped, "")
+func Stop() error {
+	stopAndWait()
 	return nil
 }
 
 func Restart() error {
-	procMu.Lock()
-	defer procMu.Unlock()
-	_ = stopLocked()
-	time.Sleep(500 * time.Millisecond)
-	return startLocked()
+	stopAndWait()
+	return Start()
 }
 
-// Upgrade git pull 增量更新，有变化则构建重启
 func Upgrade() {
-	// 同步切换状态，确保调用方拿到的快照已是 building
 	state.SetStatus(StatusBuilding, "正在准备更新...")
-	go func() {
-		procMu.Lock()
-		_ = stopLocked()
-		procMu.Unlock()
+	go update(false)
+}
 
-		if _, err := os.Stat(srcDir); os.IsNotExist(err) {
-			state.SetStatus(StatusBuilding, "正在检查远程更新...")
-			if err := gitClone(); err != nil {
-				LogWarning("git clone 失败: %s", err)
-				state.SetStatus(StatusStopped, "克隆失败: "+err.Error())
-				return
-			}
-			if err := buildSource(); err != nil {
-				LogWarning("构建失败: %s", err)
-				state.SetStatus(StatusStopped, "构建失败: "+err.Error())
-				return
-			}
-			refreshCommit()
-			restartService()
+func Rebuild() {
+	state.SetStatus(StatusBuilding, "正在准备强制重建...")
+	go update(true)
+}
+
+func update(forceRebuild bool) {
+	stopAndWait()
+
+	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+		if forceRebuild {
+			state.SetStatus(StatusStopped, "源码不存在，请先拉取更新")
 			return
 		}
+		state.SetStatus(StatusBuilding, "正在检查远程更新...")
+		if err := gitClone(); err != nil {
+			LogWarning("git clone 失败: %s", err)
+			state.SetStatus(StatusStopped, "克隆失败: "+err.Error())
+			return
+		}
+		if err := buildSource(); err != nil {
+			LogWarning("构建失败: %s", err)
+			state.SetStatus(StatusStopped, "构建失败: "+err.Error())
+			return
+		}
+		refreshCommit()
+		restartService()
+		return
+	}
 
+	if forceRebuild {
+		state.SetStatus(StatusBuilding, "正在强制重建...")
+	} else {
 		commitBefore := gitHead()
-
 		state.SetStatus(StatusBuilding, "正在拉取远程更新...")
 		if err := gitPull(); err != nil {
 			LogWarning("git pull 失败: %s", err)
 			state.SetStatus(StatusStopped, "git pull 失败: "+err.Error())
 			return
 		}
-
 		commitAfter := gitHead()
-
 		if commitBefore != "" && commitBefore == commitAfter {
 			LogInfo("已是最新版本（%s），跳过构建", commitAfter)
 			refreshCommit()
 			restartService()
 			return
 		}
-
 		LogInfo("更新: %s → %s，开始构建...", commitBefore, commitAfter)
-		if err := buildSource(); err != nil {
-			LogWarning("构建失败: %s", err)
-			state.SetStatus(StatusStopped, "构建失败: "+err.Error())
-			return
-		}
+	}
 
-		refreshCommit()
-		restartService()
-	}()
+	if err := buildSource(); err != nil {
+		LogWarning("构建失败: %s", err)
+		state.SetStatus(StatusStopped, "构建失败: "+err.Error())
+		return
+	}
+
+	refreshCommit()
+	restartService()
 }
 
-// Rebuild 跳过 git pull，强制重新构建并重启
-func Rebuild() {
-	state.SetStatus(StatusBuilding, "正在准备强制重建...")
-	go func() {
-		procMu.Lock()
-		_ = stopLocked()
-		procMu.Unlock()
+func restartService() {
+	LogInfo("构建完成，重启服务...")
+	stopAndWait()
+	state.SetStatus(StatusStopped, "")
+	if err := Start(); err != nil {
+		LogWarning("启动失败: %s", err)
+		state.SetStatus(StatusStopped, "启动失败: "+err.Error())
+	}
+}
 
-		if _, err := os.Stat(srcDir); os.IsNotExist(err) {
-			state.SetStatus(StatusStopped, "源码不存在，请先拉取更新")
-			return
+func killHarnessLocked() {
+	// 1. 优先清理内存中的当前进程
+	if process != nil && process.cmd != nil && process.cmd.Process != nil {
+		pid := process.cmd.Process.Pid
+		LogInfo("停止进程 PID=%d", pid)
+		_ = killProcessGroup(pid)
+		removePidFileIfMatches(pid)
+		process = nil
+	}
+
+	// 2. 清理 PID 文件中的进程
+	if data, err := os.ReadFile(pidFilePath()); err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 {
+			if syscall.Kill(pid, 0) == nil {
+				LogInfo("通过 PID 文件发现进程 PID=%d", pid)
+				killProcessTree(pid)
+				removePidFileIfMatches(pid)
+			} else {
+				_ = os.Remove(pidFilePath())
+			}
 		}
+	}
 
-		state.SetStatus(StatusBuilding, "正在强制重建...")
-		if err := buildSource(); err != nil {
-			LogWarning("构建失败: %s", err)
-			state.SetStatus(StatusStopped, "构建失败: "+err.Error())
-			return
+	// 3. 端口占用兜底
+	cfg := GetConfig()
+	port := cfg.ServerPort
+	if port <= 0 {
+		port = 3080
+	}
+	for _, pid := range findPidsOnPort(port) {
+		LogInfo("端口 %d 被 PID=%d 占用，强制清理", port, pid)
+		killProcessTree(pid)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	_ = os.Remove(pidFilePath())
+}
+
+func KillHarness() {
+	procMu.Lock()
+	defer procMu.Unlock()
+	killHarnessLocked()
+}
+
+func killProcessTree(pid int) {
+	if pid <= 0 {
+		return
+	}
+	out, err := exec.Command("ps", "-o", "pgid=", "-p", strconv.Itoa(pid)).Output()
+	if err == nil {
+		pgidStr := strings.TrimSpace(string(out))
+		if pgid, err := strconv.Atoi(pgidStr); err == nil && pgid > 0 {
+			if killProcessGroup(pgid) {
+				return
+			}
 		}
+	}
+	_ = syscall.Kill(pid, syscall.SIGKILL)
+}
 
-		refreshCommit()
-		restartService()
-	}()
+func findPidsOnPort(port int) []int {
+	if port <= 0 {
+		return nil
+	}
+	out, err := exec.Command("fuser", fmt.Sprintf("%d/tcp", port)).Output()
+	if err != nil {
+		return nil
+	}
+	parts := strings.Fields(strings.TrimSpace(string(out)))
+	var pids []int
+	for _, p := range parts {
+		if pid, err := strconv.Atoi(p); err == nil && pid > 0 {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
 }
 
 func gitClone() error {
@@ -468,7 +552,6 @@ func installGCC() error {
 	return nil
 }
 
-// landlockNativeDir 返回当前主机架构对应的 landlock 平台包目录（amd64→x64）
 func landlockNativeDir() string {
 	arch := runtime.GOARCH
 	if arch == "amd64" {
@@ -497,7 +580,6 @@ func ensureMusl() error {
 	return nil
 }
 
-// buildLandlock 构建 landlock-run 原生二进制（git 不含该产物），已存在则跳过
 func buildLandlock() error {
 	bin := filepath.Join(landlockNativeDir(), "bin", "landlock-run")
 	if _, err := os.Stat(bin); err == nil {
@@ -542,15 +624,6 @@ func buildSource() error {
 	return nil
 }
 
-func restartService() {
-	LogInfo("构建完成，重启服务...")
-	procMu.Lock()
-	_ = stopLocked()
-	time.Sleep(300 * time.Millisecond)
-	_ = startLocked()
-	procMu.Unlock()
-}
-
 func runCmd(dir, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
@@ -567,19 +640,17 @@ func buildEnv() []string {
 	env = appendOrReplace(env, "HOME", filepath.Join(pkgVarDir, "home"))
 	env = appendOrReplace(env, "npm_config_cache", filepath.Join(pkgVarDir, "npm-cache"))
 	env = appendOrReplace(env, "npm_config_registry", "https://registry.npmmirror.com")
+	env = appendOrReplace(env, "npm_config_nodedir", "/var/apps/nodejs_v24/target")
 	env = appendOrReplace(env, "PNPM_HOME", filepath.Join(pkgVarDir, "pnpm-home"))
 	env = appendOrReplace(env, "DSH_HOME", filepath.Join(pkgVarDir, "dsh-data"))
 	env = appendOrReplace(env, "DSH_AGENTS_HOME", filepath.Join(pkgVarDir, "dsh-data", "agents"))
 
-	// 代理：git 用 -c 参数；npm 走代理但镜像域名直连
 	cfg := GetConfig()
 	if cfg.NetworkProxy != "" {
 		noProxy := "localhost,127.0.0.1,::1,registry.npmmirror.com,npmmirror.com"
-		// npm/pnpm 配置（随生命周期脚本传给 node-gyp 等）
 		env = appendOrReplace(env, "npm_config_proxy", cfg.NetworkProxy)
 		env = appendOrReplace(env, "npm_config_https_proxy", cfg.NetworkProxy)
 		env = appendOrReplace(env, "npm_config_noproxy", noProxy)
-		// 标准代理变量（覆盖未读 npm 配置的其他工具）
 		env = appendOrReplace(env, "HTTP_PROXY", cfg.NetworkProxy)
 		env = appendOrReplace(env, "HTTPS_PROXY", cfg.NetworkProxy)
 		env = appendOrReplace(env, "ALL_PROXY", cfg.NetworkProxy)
@@ -589,7 +660,6 @@ func buildEnv() []string {
 	return env
 }
 
-// gitProxyArgs 返回 git 代理参数（未配置时为空），仅 clone/pull 使用
 func gitProxyArgs() []string {
 	cfg := GetConfig()
 	if cfg.NetworkProxy == "" {
@@ -622,7 +692,6 @@ func refreshCommit() {
 	SetVersion(readVersion())
 }
 
-// readVersion 从 package.json 读取版本号
 func readVersion() string {
 	data, err := os.ReadFile(filepath.Join(srcDir, "package.json"))
 	if err != nil {
@@ -651,12 +720,10 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%d秒", s)
 }
 
-// setProcessGroup 创建独立进程组，便于停止时一次性结束 pnpm/node/tsx 所有子进程
 func setProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-// killProcessGroup 先 SIGTERM，超时后 SIGKILL
 func killProcessGroup(pgid int) bool {
 	if pgid <= 0 {
 		return true
@@ -680,56 +747,12 @@ func pidFilePath() string {
 	return filepath.Join(pkgVarDir, "harness.pid")
 }
 
-// findHarnessPids 通过 pgrep 查找所有匹配的 harness 进程 PID
-func findHarnessPids() []int {
-	out, err := exec.Command("pgrep", "-f", harnessProcessPattern).Output()
-	if err != nil {
-		return nil
-	}
-	var pids []int
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if pid, err := strconv.Atoi(line); err == nil && pid > 0 {
-			pids = append(pids, pid)
-		}
-	}
-	return pids
-}
-
-// KillHarness 停止所有 harness 进程（内存进程 → PID 文件 → pgrep → SIGKILL 兜底）
-func KillHarness() {
-	if process != nil && process.Process != nil {
-		stopping = true
-		pid := process.Process.Pid
-		process = nil
-		LogInfo("停止进程 PID=%d", pid)
-		_ = killProcessGroup(pid)
-	}
-
+func removePidFileIfMatches(pid int) {
 	if data, err := os.ReadFile(pidFilePath()); err == nil {
-		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 {
-			if syscall.Kill(pid, 0) == nil {
-				LogInfo("通过 PID 文件发现进程 PID=%d", pid)
-				_ = killProcessGroup(pid)
-			}
+		if filePid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && filePid == pid {
+			_ = os.Remove(pidFilePath())
 		}
 	}
-
-	for _, pid := range findHarnessPids() {
-		LogInfo("清理进程 PID=%d", pid)
-		_ = killProcessGroup(pid)
-	}
-
-	if remaining := findHarnessPids(); len(remaining) > 0 {
-		LogWarning("仍有 %d 个进程未清除，强制 SIGKILL", len(remaining))
-		for _, pid := range remaining {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
-		}
-	}
-	_ = os.Remove(pidFilePath())
 }
 
 type logWriter struct{}

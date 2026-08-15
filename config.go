@@ -14,6 +14,7 @@ type Config struct {
 	NetworkProxy    string `json:"network_proxy"`
 	ReverseProxyURL string `json:"reverse_proxy_url,omitempty"`
 	AccessPassword  string `json:"access_password,omitempty"`
+	DataLibraryPath string `json:"data_library_path,omitempty"`
 	Version         string `json:"version,omitempty"`
 	Commit          string `json:"commit,omitempty"`
 	BuildTime       string `json:"build_time,omitempty"`
@@ -27,12 +28,13 @@ var (
 
 func InitConfig(pkgVar string) {
 	configFilePath = filepath.Join(pkgVar, "config.json")
-	globalConfig = Config{ServerPort: 3080, ProxyPort: 2299}
+	globalConfig = Config{ServerPort: 3080, ProxyPort: 2299, DataLibraryPath: pkgVar}
 	data, err := os.ReadFile(configFilePath)
 	if err != nil {
 		return
 	}
 	_ = json.Unmarshal(data, &globalConfig)
+	globalConfig.DataLibraryPath = pkgVar
 }
 
 func GetConfig() Config {

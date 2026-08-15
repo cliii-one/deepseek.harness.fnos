@@ -3,6 +3,16 @@
 LOG_FILE="${TRIM_PKGVAR}/info.log"
 PID_FILE="${TRIM_PKGVAR}/app.pid"
 
+# 根据应用数据位置选项决定路径
+LIB_TYPE="${wizard_data_library_type:-data}"
+if [ "${LIB_TYPE}" = "data" ]; then
+    DATA_LIBRARY_PATH="${TRIM_PKGVAR}"
+else
+    DATA_LIBRARY_PATH="${TRIM_DATA_SHARE_PATHS%%:*}"
+fi
+
+export DATA_LIBRARY_PATH="${DATA_LIBRARY_PATH}"
+
 CMD="${TRIM_APPDEST}/bin/deepseek.harness"
 
 log_msg() {
@@ -65,7 +75,12 @@ stop_process() {
         fi
     fi
 
-    pkill -f 'pnpm-env/node_modules/.bin/pnpm dsh web' 2>/dev/null || true
+    port=${wizard_port:-3080}
+    # 先杀占用端口的子进程
+    pids=$(ss -ltnp | grep ":${port}" | grep -oP 'pid=\K[0-9]+' | sort -u)
+    [ -n "$pids" ] && kill -9 $pids 2>/dev/null
+    # 再清理 pnpm 父进程
+    pkill -9 -f 'pnpm-env/node_modules/.bin/pnpm dsh web' 2>/dev/null || true
 
     return 0
 }

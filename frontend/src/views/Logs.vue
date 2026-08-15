@@ -33,10 +33,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import { onLogChunk, onReconnect } from '../store'
+import { useAppStore } from '../stores/app'
+import { useToastStore } from '../stores/toast'
 import { apiGet, apiDelete } from '../api'
-import { showToast } from '../toast'
 import Icon, { type IconName } from '../components/Icon.vue'
+
+const appStore = useAppStore()
+const toastStore = useToastStore()
 
 const MAX_LOG_BYTES = 100 * 1024
 const MAX_LINES = 5000
@@ -129,7 +132,7 @@ const clearLogs = async () => {
   if (!confirm('确定要清空所有运行日志吗？')) return
   const res = await apiDelete<boolean>('logs')
   if (!res) {
-    showToast('网络连接失败')
+    toastStore.showToast('网络连接失败')
   } else if (res.ok) {
     pendingBuffer = ''
     if (flushTimer !== null) {
@@ -138,7 +141,7 @@ const clearLogs = async () => {
     }
     lines.value = []
   } else {
-    showToast(res.message)
+    toastStore.showToast(res.message)
   }
 }
 
@@ -153,8 +156,8 @@ const tools: { label: string; icon: IconName; onClick: () => void; danger?: bool
 
 onMounted(() => {
   fetchLogs()
-  unsubscribe = onLogChunk(appendChunk)
-  offReconnect = onReconnect(fetchLogs)
+  unsubscribe = appStore.onLogChunk(appendChunk)
+  offReconnect = appStore.onReconnect(fetchLogs)
 })
 
 onUnmounted(() => {

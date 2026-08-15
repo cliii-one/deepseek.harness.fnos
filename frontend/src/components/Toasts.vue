@@ -10,5 +10,8 @@
 </template>
 
 <script setup lang="ts">
-import { toasts } from '../toast'
+import { computed } from 'vue'
+import { useToastStore } from '../stores/toast'
+const toastStore = useToastStore()
+const toasts = computed(() => toastStore.toasts)
 </script>

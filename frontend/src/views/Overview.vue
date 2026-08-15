@@ -6,9 +6,13 @@
     <div class="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-slate-100">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div class="flex items-center gap-4">
-          <div class="w-12 h-12 sm:w-14 sm:h-14 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-600 shadow-inner shrink-0">
+          <button @click="openFileManager"
+            :disabled="!dataLibraryPath"
+            class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center shadow-inner shrink-0 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            :class="dataLibraryPath ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800' : 'bg-slate-50 text-slate-300'"
+            title="打开数据目录">
             <Icon name="monitor" :size="30" />
-          </div>
+          </button>
           <div>
             <h2 class="text-base sm:text-lg font-bold text-slate-800">{{ statusData.name }}</h2>
             <p class="text-xs sm:text-sm text-slate-400 mt-0.5">
@@ -73,12 +77,20 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { statusData, wsConnected, type StatusData } from '../store'
+import { TrimApp } from '@trimjs/web-app'
+import { useAppStore } from '../stores/app'
 import { apiGet, apiPost } from '../api'
-import { showToast } from '../toast'
+import { useToastStore } from '../stores/toast'
 import Icon, { type IconName } from '../components/Icon.vue'
 
+const appStore = useAppStore()
+const toastStore = useToastStore()
+const statusData = computed(() => appStore.statusData)
+const wsConnected = computed(() => appStore.wsConnected)
+
 const loading = ref(false)
+const dataLibraryPath = ref('')
+let trimApp: TrimApp | null = null
 
 const isRunning = computed(() => statusData.value.status === 'running')
 const isBuilding = computed(() => statusData.value.status === 'building')
@@ -98,8 +110,14 @@ const infoFields = computed(() => [
 const now = ref(Date.now())
 let nowTimer: ReturnType<typeof setInterval> | null = null
 
-onMounted(() => {
+onMounted(async () => {
   nowTimer = setInterval(() => { now.value = Date.now() }, 1000)
+  trimApp = new TrimApp()
+  await trimApp.ready()
+  const res = await apiGet<{ data_library_path?: string }>('config')
+  if (res?.ok && res.data.data_library_path) {
+    dataLibraryPath.value = res.data.data_library_path
+  }
 })
 onUnmounted(() => {
   if (nowTimer !== null) clearInterval(nowTimer)
@@ -138,6 +156,15 @@ const actionCards = computed<ActionCard[]>(() => [
   { action: 'rebuild', icon: 'tools', label: '强制重建', hover: 'group-hover:bg-purple-50 group-hover:text-purple-600', disabled: loading.value || isBuilding.value }
 ])
 
+const openFileManager = async () => {
+  if (!trimApp || !dataLibraryPath.value) return
+  try {
+    await trimApp.openFileManager(dataLibraryPath.value)
+  } catch (e: any) {
+    toastStore.showToast(`打开文件管理器失败：${e?.message || e}`)
+  }
+}
+
 const openApp = async () => {
   const res = await apiGet<{ reverse_proxy_url?: string }>('config')
   if (res?.ok && res.data.reverse_proxy_url) {
@@ -152,12 +179,11 @@ const openApp = async () => {
 
 const doAction = async (action: string) => {
   loading.value = true
-  // 成功不弹 toast，状态标签即反馈
-  const res = await apiPost<StatusData>('action', { action })
+  const res = await apiPost('action', { action })
   if (!res) {
-    showToast('网络连接失败')
+    toastStore.showToast('网络连接失败')
   } else if (!res.ok) {
-    showToast(res.message)
+    toastStore.showToast(res.message)
   }
   loading.value = false
 }

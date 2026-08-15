@@ -26,6 +26,28 @@
             {
                 "type": "tips",
                 "helpText": "<span style=\"color: #e6a23c; font-weight: bold;\">说明</span>：如需更改，请先在 Harness Admin 中更改\"反向代理端口\",此处端口必须与 Harness Admin 中设置的\"反向代理端口\"一致！"
+            },
+            {
+                "type": "radio",
+                "field": "wizard_data_library_type",
+                "label": "应用数据位置",
+                "initValue": "data",
+                "options": [
+                    {
+                        "label": "共享目录 (Share)",
+                        "value": "share"
+                    },
+                    {
+                        "label": "数据目录 (Data)",
+                        "value": "data"
+                    }
+                ],
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请选择应用数据位置"
+                    }
+                ]
             }
         ]
     }

@@ -2,15 +2,10 @@
 
 ### This script is called after the user uninstalls the application.
 
-pkill -f 'pnpm-env/node_modules/.bin/pnpm dsh web' 2>/dev/null || true
-
 WIZARD_DATA_ACTION="$wizard_data_action"
 
 if [ "$WIZARD_DATA_ACTION" = "delete" ]; then
-    echo "开始删除数据目录：$TRIM_PKGVAR ${TRIM_DATA_SHARE_PATHS%%:*}"
     rm -rf ${TRIM_PKGVAR} ${TRIM_DATA_SHARE_PATHS%%:*}
-else
-    echo "保留数据不动"
 fi
 
 exit 0

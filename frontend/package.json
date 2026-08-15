@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@trimjs/web-app": "latest",
+    "pinia": "^3.0.3",
     "vue": "^3.5.13"
   },
   "devDependencies": {

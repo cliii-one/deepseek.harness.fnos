@@ -17,9 +17,9 @@ var embeddedWebFS embed.FS
 var globalPkgVar string
 
 func main() {
-	pkgVar := os.Getenv("TRIM_PKGVAR")
+	pkgVar := os.Getenv("DATA_LIBRARY_PATH")
 	if pkgVar == "" {
-		LogFatal("缺少 TRIM_PKGVAR 环境变量")
+		LogFatal("缺少 DATA_LIBRARY_PATH 环境变量")
 	}
 	globalPkgVar = pkgVar
 
@@ -49,6 +49,7 @@ func main() {
 
 	WebFS = embeddedWebFS
 	InitRoutes(r)
+	StartWorkspacePolling()
 
 	_ = os.MkdirAll(appdest, 0755)
 	socketPath := filepath.Join(appdest, "web.sock")
