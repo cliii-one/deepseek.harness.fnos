@@ -33,6 +33,7 @@ func InitRoutes(r *gin.Engine) {
 		api.POST("/config", handleSaveConfig)
 		api.GET("/workspace/list", handleGetWorkspaces)
 		api.GET("/plugins", handleListPlugins)
+		api.GET("/plugins/status", handlePluginStatus)
 		api.POST("/plugins/preview", handlePluginPreview)
 		api.POST("/plugins/run", handlePluginRun)
 		api.POST("/plugins/upload", handlePluginUpload)
@@ -136,6 +137,7 @@ func handleWS(c *gin.Context) {
 	// 连接即快照
 	writeJSON(wsMsg{Type: "status", Data: statusPayload()})
 	writeJSON(wsMsg{Type: "workspace", Data: GetWorkspaces()})
+	writeJSON(wsMsg{Type: "plugin", Data: pluginStatusPayload()})
 
 	// 事件驱动：状态与日志变更即时推送
 	stateCh, unsubscribeState := state.SubscribeState(16)

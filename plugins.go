@@ -348,6 +348,10 @@ func handleListPlugins(c *gin.Context) {
 	OK(c, pluginListPayload{Profile: "web", Plugins: plugins, Builtin: builtin, Bundles: bundles})
 }
 
+func handlePluginStatus(c *gin.Context) {
+	OK(c, pluginStatusPayload())
+}
+
 type pluginOpState struct {
 	Running bool   `json:"running"`
 	OK      *bool  `json:"ok,omitempty"`

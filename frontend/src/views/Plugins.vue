@@ -224,9 +224,12 @@ const onPluginEvent = (s: PluginStatus) => {
   }
 }
 
-const startOp = (msg: string) => {
+const startOp = async (msg: string) => {
   busy.value = true
   toastStore.showToast(msg)
+  // 快操作（如启用/禁用）的完成事件可能先于本响应到达，主动同步一次状态
+  const res = await apiGet<PluginStatus>('plugins/status')
+  if (res?.ok && res.data) onPluginEvent(res.data)
 }
 
 const install = async () => {
