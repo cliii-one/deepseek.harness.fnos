@@ -100,7 +100,7 @@
           <div class="mt-1.5 flex items-center justify-between gap-2">
             <div class="hidden sm:flex items-center gap-1.5 min-w-0">
               <span v-if="p.version"
-                class="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">v{{ p.version }}</span>
+                class="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">版本 {{ p.version }}</span>
               <span v-if="p.spec"
                 class="text-[10px] font-medium text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full shrink-0">声明 {{ p.spec }}</span>
             </div>
