@@ -53,8 +53,8 @@ const views: Record<TabKey, Component> = { overview: Overview, workspace: Worksp
 const mainTabs: { key: TabKey; label: string; icon: IconName }[] = [
   { key: 'overview', label: '概览', icon: 'grid' },
   { key: 'workspace', label: '工作区', icon: 'workspace' },
-  { key: 'logs', label: '日志', icon: 'file' },
-  { key: 'plugins', label: '插件', icon: 'puzzle' }
+  { key: 'plugins', label: '插件', icon: 'puzzle' },
+  { key: 'logs', label: '日志', icon: 'file' }
 ]
 
 const mobileTabs: { key: TabKey; label: string; icon: IconName }[] = [
