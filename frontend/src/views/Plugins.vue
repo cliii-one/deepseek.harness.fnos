@@ -166,7 +166,7 @@ const command = ref('')
 const preview = ref<PluginPreview | null>(null)
 const file = ref<File | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
-const busy = ref(false)
+const busy = computed(() => appStore.pluginBusy)
 
 const plugins = ref<PluginItem[]>([])
 const builtin = ref<string[]>([])
@@ -208,13 +208,9 @@ const refresh = async () => {
   }
 }
 
-// 插件操作完成后：刷新列表 + toast 结果
+// 插件操作完成后：刷新列表 + toast 结果（busy 由 store 随 WS 消息维护）
 const onPluginEvent = (s: PluginStatus) => {
-  if (s.running) {
-    busy.value = true
-    return
-  }
-  busy.value = false
+  if (s.running) return
   refresh()
   if (s.ok === false) {
     toastStore.showToast(s.message || '插件操作失败', 5000)
@@ -224,10 +220,10 @@ const onPluginEvent = (s: PluginStatus) => {
   }
 }
 
+// 操作发起后主动同步一次后端状态，避免快操作的完成事件先于本响应到达
 const startOp = async (msg: string) => {
-  busy.value = true
+  appStore.pluginBusy = true
   toastStore.showToast(msg)
-  // 快操作（如启用/禁用）的完成事件可能先于本响应到达，主动同步一次状态
   const res = await apiGet<PluginStatus>('plugins/status')
   if (res?.ok && res.data) onPluginEvent(res.data)
 }
@@ -297,9 +293,16 @@ const toggle = async (name: string, enabled: boolean) => {
 
 let offPlugin: (() => void) | null = null
 
+const syncPluginStatus = async () => {
+  const res = await apiGet<PluginStatus>('plugins/status')
+  if (res?.ok && res.data) appStore.pluginBusy = res.data.running
+}
+
 onMounted(() => {
   refresh()
   offPlugin = appStore.onPluginEvent(onPluginEvent)
+  // 切回本页时同步操作状态：进行中则保持指示，已结束则复位
+  syncPluginStatus()
 })
 onUnmounted(() => {
   offPlugin?.()

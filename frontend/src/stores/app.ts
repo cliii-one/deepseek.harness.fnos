@@ -58,6 +58,7 @@ export const useAppStore = defineStore('app', () => {
 
   const wsConnected = ref(true)
   const currentTab = ref('overview')
+  const pluginBusy = ref(false)
 
   function setTab(tab: string) {
     currentTab.value = tab
@@ -104,7 +105,9 @@ export const useAppStore = defineStore('app', () => {
       } else if (msg.type === 'log' && typeof msg.data === 'string') {
         logListeners.forEach(fn => fn(msg.data as string))
       } else if (msg.type === 'plugin' && msg.data) {
-        pluginListeners.forEach(fn => fn(msg.data as PluginStatus))
+        const s = msg.data as PluginStatus
+        pluginBusy.value = s.running
+        pluginListeners.forEach(fn => fn(s))
       }
     }
 
@@ -147,6 +150,7 @@ export const useAppStore = defineStore('app', () => {
     workspaceData,
     wsConnected,
     currentTab,
+    pluginBusy,
     setTab,
     connectWS,
     fetchWorkspaceData,
