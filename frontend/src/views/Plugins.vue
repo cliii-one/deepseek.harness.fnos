@@ -215,7 +215,10 @@ const startOp = async (msg: string) => {
   appStore.pluginBusy = true
   toastStore.showToast(msg)
   const res = await apiGet<PluginStatus>('plugins/status')
-  if (res?.ok && res.data) onPluginEvent(res.data)
+  if (res?.ok && res.data) {
+    appStore.pluginBusy = res.data.running
+    onPluginEvent(res.data)
+  }
 }
 
 const install = async () => {
