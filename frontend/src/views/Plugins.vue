@@ -210,14 +210,15 @@ const onPluginEvent = (s: PluginStatus) => {
   }
 }
 
-// 操作发起后主动同步一次后端状态，避免快操作的完成事件先于本响应到达
+// 操作发起后主动同步一次后端状态，避免快操作的完成事件先于本响应到达。
+// 此处仅复位指示与刷新列表；完成 toast 由 WS 事件负责，避免同一状态通知两次。
 const startOp = async (msg: string) => {
   appStore.pluginBusy = true
   toastStore.showToast(msg)
   const res = await apiGet<PluginStatus>('plugins/status')
   if (res?.ok && res.data) {
     appStore.pluginBusy = res.data.running
-    onPluginEvent(res.data)
+    if (!res.data.running) refresh()
   }
 }
 
