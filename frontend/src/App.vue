@@ -60,8 +60,8 @@ const mainTabs: { key: TabKey; label: string; icon: IconName }[] = [
 const mobileTabs: { key: TabKey; label: string; icon: IconName }[] = [
   { key: 'overview', label: '概览', icon: 'grid' },
   { key: 'workspace', label: '工作区', icon: 'workspace' },
-  { key: 'logs', label: '日志', icon: 'file' },
   { key: 'plugins', label: '插件', icon: 'puzzle' },
+  { key: 'logs', label: '日志', icon: 'file' },
   { key: 'settings', label: '设置', icon: 'settings' }
 ]
 
