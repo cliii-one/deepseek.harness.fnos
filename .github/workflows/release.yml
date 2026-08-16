@@ -36,7 +36,7 @@ jobs:
           echo "$UPSTREAM_VER" > /tmp/version.txt
           echo "Upstream deepseek-harness version: $UPSTREAM_VER"
           
-          pnpm install --frozen-lockfile
+          pnpm install --no-frozen-lockfile
           pnpm run build
           pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
           pnpm prune --prod
@@ -73,7 +73,7 @@ jobs:
           git clone --depth=1 https://github.com/deepseek-ai/deepseek-harness.git /tmp/upstream/deepseek-harness
           cd /tmp/upstream/deepseek-harness
           
-          pnpm install --frozen-lockfile
+          pnpm install --no-frozen-lockfile
           pnpm run build
           pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
           pnpm prune --prod
