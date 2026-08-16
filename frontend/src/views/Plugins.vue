@@ -1,344 +1,367 @@
 <template>
-  <div class="space-y-6 max-w-4xl mx-auto">
-    <h1 class="text-xl font-bold text-slate-800 tracking-tight">插件管理</h1>
+  <div class="w-full flex-1 flex flex-col gap-4 sm:gap-6">
+    <!-- 桌面端页头 -->
+    <n-page-header class="hidden sm:block" :subtitle="plugins.length ? `已安装 ${plugins.length} 个插件` : ''">
+      <template #title>
+        <div class="text-xl font-bold text-slate-800 tracking-tight">插件管理</div>
+      </template>
+    </n-page-header>
 
-    <!-- 安装插件 -->
-    <section class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-5">
-      <div class="flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
-        <h2 class="text-sm font-bold text-slate-800">安装插件</h2>
-        <button @click="install" :disabled="!canInstall"
-          class="px-5 py-2 bg-fnos-blue hover:bg-fnos-blue-hover disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium rounded-xl text-sm transition-colors shadow-sm flex items-center gap-2">
-          <Icon v-if="busy" name="spinner" :size="14" />
-          <span>{{ busy ? '正在执行…' : '安装' }}</span>
-        </button>
-      </div>
-
-      <div class="flex items-center gap-6">
-        <label class="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
-          <input type="radio" value="cmd" v-model="mode" class="text-fnos-blue focus:ring-0" :disabled="busy">
-          <span>命令</span>
-        </label>
-        <label class="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
-          <input type="radio" value="upload" v-model="mode" class="text-fnos-blue focus:ring-0" :disabled="busy">
-          <span>上传</span>
-        </label>
-      </div>
-
-      <!-- 命令模式 -->
-      <div v-if="mode === 'cmd'" class="space-y-3">
-        <div class="space-y-1">
-          <input type="text" v-model="command" :disabled="busy" placeholder="dsh plugin add 包名"
-            class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono text-slate-800 focus:outline-none focus:border-fnos-blue focus:bg-white transition-colors disabled:opacity-50">
-          <p class="text-[11px] text-slate-400">例：dsh plugin --profile web add @user/hello</p>
+    <!-- 安装插件卡片 -->
+    <n-card :bordered="false" class="shadow-sm">
+      <template #header>
+        <div class="flex items-center justify-between w-full">
+          <span class="text-base font-bold text-slate-800">安装新插件</span>
+          <n-button
+            type="primary"
+            v-debounce
+            :loading="busy"
+            :disabled="!canInstall"
+            @click="handleInstall"
+            class="px-5"
+          >
+            <template #icon v-if="!busy">
+              <n-icon>
+                <Plus />
+              </n-icon>
+            </template>
+            <span>{{ busy ? '正在执行…' : '开始安装' }}</span>
+          </n-button>
         </div>
+      </template>
 
-        <div v-if="command.trim()" :class="[
-          'px-3.5 py-2 rounded-xl text-xs font-medium flex items-center gap-2 border',
-          preview?.ok
-            ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
-            : 'bg-rose-50 text-rose-600 border-rose-100'
-        ]">
-          <Icon :name="preview?.ok ? 'info' : 'warning'" :size="14" />
-          <span class="truncate">{{ preview?.ok ? `将执行: ${preview.command}` : preview?.reason }}</span>
-        </div>
-      </div>
+      <!-- Naive UI 原生 Tabs -->
+      <n-tabs v-model:value="mode" type="segment" animated size="medium" :disabled="busy">
+        <!-- 命令安装 Tab -->
+        <n-tab-pane name="cmd" tab="命令安装">
+          <div class="space-y-3 pt-3">
+            <div class="space-y-1.5">
+              <n-input
+                :value="command"
+                @update:value="pluginStore.setCommand"
+                :disabled="busy"
+                placeholder="例如: dsh plugin --profile web add dshmarket"
+                clearable
+              >
+                <template #prefix>
+                  <n-icon class="text-slate-400">
+                    <Terminal2 />
+                  </n-icon>
+                </template>
+              </n-input>
+              <div class="text-[11px] text-slate-400 pl-1">
+                支持: npm 包名、@scoped 包、github:user/repo 简写及带引号的 Monorepo 子路径
+              </div>
+            </div>
 
-      <!-- 上传模式 -->
-      <div v-else class="space-y-3">
-        <div
-          class="px-3.5 py-2.5 rounded-xl text-xs font-medium flex items-start gap-2 border bg-amber-50 text-amber-600 border-amber-100">
-          <Icon name="warning" :size="14" class="mt-0.5 shrink-0" />
-          <span>安装脚本将在本机执行，请仅安装可信来源的包。</span>
-        </div>
+            <!-- 命令解析折叠动画 -->
+            <n-collapse-transition :show="!!command.trim()">
+              <n-alert
+                :type="preview?.valid ? 'success' : 'error'"
+                :show-icon="true"
+                class="rounded-xl text-xs"
+              >
+                {{ preview?.valid ? `将执行: ${preview.command}` : (preview?.reason || '解析中…') }}
+              </n-alert>
+            </n-collapse-transition>
+          </div>
+        </n-tab-pane>
 
-        <div class="flex flex-col sm:flex-row sm:items-center gap-3">
-          <input ref="fileInput" type="file" accept=".tgz,.zip" class="hidden" :disabled="busy" @change="onFileChange">
-          <button @click="fileInput?.click()" :disabled="busy"
-            class="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-2 disabled:opacity-50 shrink-0">
-            <Icon name="upload" :size="16" class="text-slate-500" />
-            <span>选择文件</span>
-          </button>
-          <span class="text-sm text-slate-500 truncate">{{ file ? file.name : '支持 .tgz / .zip 压缩包（上限 64MB）' }}</span>
-        </div>
-      </div>
-    </section>
+        <!-- 离线文件上传 Tab -->
+        <n-tab-pane name="upload" tab="文件上传">
+          <div class="space-y-3 pt-3">
+            <n-alert type="warning" :show-icon="true" class="rounded-xl text-xs">
+              安装脚本将在本机以宿主权限执行，请仅安装来自可信来源的插件包。
+            </n-alert>
 
-    <!-- 已安装插件 -->
-    <section class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-4">
-      <div class="flex items-center justify-between gap-3">
-        <h2 class="text-sm font-bold text-slate-800">已安装插件 ({{ plugins.length }})</h2>
-        <button @click="refresh" :disabled="busy"
-          class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1.5 disabled:opacity-50">
-          <Icon :name="busy ? 'spinner' : 'refresh'" :size="14" class="text-slate-500" />
-          <span>刷新</span>
-        </button>
-      </div>
+            <n-upload
+              v-model:file-list="uploadFileList"
+              :max="1"
+              accept=".tgz,.zip"
+              :show-file-list="true"
+              :default-upload="false"
+              @change="handleUploadChange"
+              :disabled="busy"
+            >
+              <n-upload-dragger class="!py-6">
+                <div class="flex flex-col items-center justify-center gap-2">
+                  <div class="w-12 h-12 rounded-2xl bg-blue-50 text-fnos-blue flex items-center justify-center">
+                    <n-icon :size="26">
+                      <Upload />
+                    </n-icon>
+                  </div>
+                  <div class="text-sm font-medium text-slate-700">
+                    点击或拖拽插件压缩包到此处
+                  </div>
+                  <div class="text-xs text-slate-400">
+                    支持 .tgz / .zip 格式压缩包（上限 64MB）
+                  </div>
+                </div>
+              </n-upload-dragger>
+            </n-upload>
+          </div>
+        </n-tab-pane>
+      </n-tabs>
+    </n-card>
 
-      <!-- 加载骨架 -->
-      <div v-if="loading" class="divide-y divide-slate-100 animate-pulse">
-        <div v-for="i in 3" :key="i" class="py-3.5 space-y-2">
+    <!-- 已安装插件列表卡片 -->
+    <n-card :bordered="false" class="shadow-sm">
+      <template #header>
+        <div class="flex items-center justify-between w-full">
           <div class="flex items-center gap-2">
-            <div class="h-4 w-40 bg-slate-200 rounded"></div>
-            <div class="h-4 w-14 bg-slate-100 rounded-full"></div>
-            <div class="h-4 w-14 bg-slate-100 rounded-full"></div>
+            <span class="text-base font-bold text-slate-800">已安装插件</span>
+            <n-badge :value="plugins.length" type="info" />
           </div>
-          <div class="flex items-center justify-between gap-2">
-            <div class="hidden sm:flex items-center gap-1.5">
-              <div class="h-4 w-16 bg-slate-100 rounded-full"></div>
-              <div class="h-4 w-16 bg-slate-100 rounded-full"></div>
-            </div>
-            <div class="flex items-center gap-2">
-              <div class="h-7 w-14 bg-slate-100 rounded-lg"></div>
-              <div class="h-7 w-14 bg-slate-100 rounded-lg"></div>
-              <div class="h-7 w-14 bg-slate-100 rounded-lg"></div>
-            </div>
-          </div>
+          <n-button
+            secondary
+            v-debounce
+            size="small"
+            :loading="loading || busy"
+            @click="handleRefresh"
+          >
+            <template #icon>
+              <n-icon>
+                <Refresh />
+              </n-icon>
+            </template>
+            <span>刷新</span>
+          </n-button>
+        </div>
+      </template>
+
+      <!-- 加载骨架屏 -->
+      <div v-if="loading" class="space-y-4 py-2">
+        <div v-for="i in 3" :key="i" class="space-y-2 p-3 bg-slate-50 rounded-xl">
+          <n-skeleton text style="width: 40%" />
+          <n-skeleton text :repeat="2" />
         </div>
       </div>
 
-      <!-- 空态 -->
-      <div v-else-if="!plugins.length" class="py-10 text-center">
-        <div class="w-14 h-14 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
-          <Icon name="box" :size="26" class="text-slate-400" />
-        </div>
-        <p class="text-slate-500 text-sm">暂无已安装插件</p>
-        <p class="text-slate-400 text-xs mt-1">在上方输入命令或上传 .tgz / .zip 进行安装</p>
+      <!-- 空状态 -->
+      <div v-else-if="!plugins.length" class="py-12 text-center">
+        <n-empty description="暂无已安装插件">
+          <template #icon>
+            <n-icon :size="48" class="text-slate-300">
+              <Puzzle />
+            </n-icon>
+          </template>
+          <template #extra>
+            <span class="text-xs text-slate-400">在上方输入命令或上传压缩包进行安装</span>
+          </template>
+        </n-empty>
       </div>
 
       <!-- 插件列表 -->
-      <ul v-else class="divide-y divide-slate-100">
-        <li v-for="p in plugins" :key="p.name" class="py-3.5">
-          <!-- 主行：名称 + 移动端版本徽章 + 状态徽章 -->
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="text-sm font-semibold text-slate-800 truncate min-w-0">{{ p.name }}</span>
-            <span v-if="p.version"
-              class="sm:hidden text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">v{{
-                p.version }}</span>
-            <span class="text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0 border"
-              :class="p.layer ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'">
-              {{ p.layer ? '已启用' : '未启用' }}
-            </span>
-          </div>
-          <!-- 副行：桌面端版本/声明徽章 + 操作按钮 -->
-          <div class="mt-1.5 flex items-center justify-between gap-2">
-            <div class="hidden sm:flex items-center gap-1.5 min-w-0">
-              <span v-if="p.version"
-                class="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">版本 {{
-                p.version }}</span>
-              <span v-if="p.spec"
-                class="text-[10px] font-medium text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full shrink-0">声明
-                {{ p.spec }}</span>
+      <n-list v-else hoverable class="divide-y divide-slate-100">
+        <n-list-item v-for="p in plugins" :key="p.name" class="!py-3.5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full min-w-0">
+            <!-- 信息区：第一行与第二行（自适应收缩与截断保护） -->
+            <div class="flex-1 min-w-0 space-y-1.5">
+              <!-- 第一行：标题、版本、状态 -->
+              <div class="flex items-center gap-2 w-full min-w-0">
+                <span
+                  class="text-sm font-bold text-slate-800 truncate min-w-0"
+                  :title="p.name"
+                >
+                  {{ p.name }}
+                </span>
+                <n-tag v-if="p.version" size="tiny" round :bordered="false" class="shrink-0">
+                  v{{ p.version }}
+                </n-tag>
+                <n-tag
+                  :type="p.layer ? 'success' : 'default'"
+                  size="tiny"
+                  round
+                  :bordered="false"
+                  class="shrink-0"
+                >
+                  {{ p.layer ? '运行中' : '已停用' }}
+                </n-tag>
+              </div>
+
+              <!-- 第二行：来源（单行超出截断与浮动提示） -->
+              <div
+                v-if="p.spec"
+                class="text-xs text-slate-400 font-mono truncate w-full min-w-0 block"
+                :title="p.spec"
+              >
+                {{ p.spec }}
+              </div>
             </div>
-            <div class="flex items-center gap-2 shrink-0">
-              <button v-if="p.layer" @click="toggle(p.name, false)" :disabled="busy"
-                class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 transition-colors flex items-center gap-1 disabled:opacity-50">
-                <Icon name="stop" :size="12" />
-                <span>禁用</span>
-              </button>
-              <button v-else @click="toggle(p.name, true)" :disabled="busy"
-                class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-colors flex items-center gap-1 disabled:opacity-50">
-                <Icon name="play" :size="12" />
-                <span>启用</span>
-              </button>
-              <button @click="quickOp('update', p.name)" :disabled="busy"
-                class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-blue-50 hover:text-fnos-blue hover:border-blue-200 transition-colors flex items-center gap-1 disabled:opacity-50">
-                <Icon name="refresh" :size="12" />
-                <span>更新</span>
-              </button>
-              <button @click="uninstall(p.name)" :disabled="busy"
-                class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-colors flex items-center gap-1 disabled:opacity-50">
-                <Icon name="trash" :size="12" />
-                <span>卸载</span>
-              </button>
+
+            <!-- 第三行（移动端独立行 / 桌面端右侧对齐）：Switch 启停胶囊、更新按钮、卸载按钮 -->
+            <div class="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto shrink-0 pt-0.5 sm:pt-0">
+              <!-- Switch 开关启停胶囊 -->
+              <div class="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 shrink-0">
+                <span class="text-xs text-slate-500 select-none">{{ p.layer ? '已启用' : '已禁用' }}</span>
+                <n-switch
+                  size="small"
+                  :value="p.layer"
+                  :disabled="busy"
+                  @update:value="(val) => handleToggle(p.name, val)"
+                />
+              </div>
+
+              <!-- 操作按钮组 -->
+              <div class="flex items-center gap-2 shrink-0">
+                <n-button
+                  size="small"
+                  secondary
+                  v-debounce
+                  type="info"
+                  :disabled="busy"
+                  @click="handleUpdate(p.name)"
+                >
+                  <template #icon>
+                    <n-icon>
+                      <Refresh />
+                    </n-icon>
+                  </template>
+                  <span>更新</span>
+                </n-button>
+
+                <n-popconfirm
+                  @positive-click="handleUninstall(p.name)"
+                  positive-text="确认卸载"
+                  negative-text="取消"
+                >
+                  <template #trigger>
+                    <n-button
+                      size="small"
+                      secondary
+                      v-debounce
+                      type="error"
+                      :disabled="busy"
+                    >
+                      <template #icon>
+                        <n-icon>
+                          <Trash />
+                        </n-icon>
+                      </template>
+                      <span>卸载</span>
+                    </n-button>
+                  </template>
+                  确定要卸载插件「{{ p.name }}」吗？
+                </n-popconfirm>
+              </div>
             </div>
           </div>
-        </li>
-      </ul>
-    </section>
+        </n-list-item>
+      </n-list>
+    </n-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useAppStore, type PluginStatus } from '../stores/app'
-import { useToastStore } from '../stores/toast'
-import { apiGet, apiPost, apiUpload } from '../api'
-import Icon from '../components/Icon.vue'
+import {
+  NPageHeader,
+  NCard,
+  NTabs,
+  NTabPane,
+  NInput,
+  NButton,
+  NAlert,
+  NBadge,
+  NEmpty,
+  NList,
+  NListItem,
+  NSwitch,
+  NTag,
+  NSkeleton,
+  NIcon,
+  NUpload,
+  NUploadDragger,
+  NPopconfirm,
+  NCollapseTransition,
+  useMessage,
+  type UploadFileInfo
+} from 'naive-ui'
+import {
+  Plus,
+  Refresh,
+  Trash,
+  Upload,
+  Terminal2,
+  Puzzle
+} from '@vicons/tabler'
+import { usePluginStore } from '../stores/plugin'
+import { withAsyncLock } from '../utils/debounce'
 
-const appStore = useAppStore()
-const toastStore = useToastStore()
+const pluginStore = usePluginStore()
+const message = useMessage()
 
-interface PluginPreview {
-  ok: boolean
-  command?: string
-  reason?: string
+const {
+  plugins,
+  loading,
+  pluginBusy: busy,
+  mode,
+  command,
+  file,
+  preview,
+  canInstall
+} = storeToRefs(pluginStore)
+
+const uploadFileList = ref<UploadFileInfo[]>([])
+
+const handleUploadChange = (data: { fileList: UploadFileInfo[] }) => {
+  uploadFileList.value = data.fileList
+  const latest = data.fileList[data.fileList.length - 1]
+  file.value = latest?.file ?? null
 }
 
-interface PluginItem {
-  name: string
-  version: string
-  spec: string
-  layer: boolean
-}
-
-interface PluginList {
-  profile: string
-  plugins: PluginItem[]
-  builtin: string[]
-  bundles: string[]
-}
-
-const { pluginCmd: command, pluginMode: mode, pluginFile: file } = storeToRefs(appStore)
-const preview = ref<PluginPreview | null>(null)
-const fileInput = ref<HTMLInputElement | null>(null)
-const busy = computed(() => appStore.pluginBusy)
-
-const plugins = ref<PluginItem[]>([])
-const loading = ref(false)
-
-const canInstall = computed(() => {
-  if (busy.value) return false
-  if (mode.value === 'cmd') return command.value.trim() !== '' && preview.value?.ok === true
-  return file.value !== null
+const handleRefresh = withAsyncLock(async () => {
+  await pluginStore.fetchPlugins()
+  message.success('插件列表已刷新')
 })
 
-// 命令预览：输入防抖 300ms 调用后端解析
-let previewTimer: ReturnType<typeof setTimeout> | null = null
-watch(command, (val) => {
-  if (previewTimer) clearTimeout(previewTimer)
-  if (!val.trim()) {
-    preview.value = null
-    return
+const handleInstall = withAsyncLock(async () => {
+  const res = await pluginStore.installPlugin()
+  if (res.success) {
+    message.success('已开始执行插件安装')
+    uploadFileList.value = []
+  } else {
+    message.error(res.message || '安装失败')
   }
-  previewTimer = setTimeout(async () => {
-    const res = await apiPost<PluginPreview>('plugins/preview', { command: val })
-    if (res?.ok) {
-      preview.value = res.data
-    } else {
-      preview.value = { ok: false, reason: res?.message ?? '解析失败' }
-    }
-  }, 300)
 })
 
-const onFileChange = (e: Event) => {
-  const input = e.target as HTMLInputElement
-  file.value = input.files?.[0] ?? null
-}
-
-const refresh = async () => {
-  loading.value = true
-  try {
-    const res = await apiGet<PluginList>('plugins')
-    if (res?.ok && res.data) {
-      plugins.value = res.data.plugins || []
-    }
-  } finally {
-    loading.value = false
-  }
-}
-
-// 插件操作完成后：刷新列表 + toast 结果（busy 由 store 随 WS 消息维护）
-const onPluginEvent = (s: PluginStatus) => {
-  if (s.running) return
-  refresh()
-  if (s.ok === false) {
-    toastStore.showToast(s.message || '插件操作失败', 5000)
-  } else if (s.message) {
-    const msg = s.message.length > 300 ? '插件操作完成，详见运行日志' : s.message
-    toastStore.showToast(msg, 4000)
-  }
-}
-
-// 操作发起后主动同步一次后端状态，避免快操作的完成事件先于本响应到达。
-// 此处仅复位指示与刷新列表；完成 toast 由 WS 事件负责，避免同一状态通知两次。
-const startOp = async (msg: string) => {
-  appStore.pluginBusy = true
-  toastStore.showToast(msg)
-  const res = await apiGet<PluginStatus>('plugins/status')
-  if (res?.ok && res.data) {
-    appStore.pluginBusy = res.data.running
-    if (!res.data.running) refresh()
-  }
-}
-
-const install = async () => {
-  if (!canInstall.value) return
-  if (mode.value === 'cmd') {
-    const res = await apiPost<{ command: string }>('plugins/run', { command: command.value })
-    if (!res) {
-      toastStore.showToast('网络连接失败')
-    } else if (res.ok) {
-      startOp('插件操作已开始，请查看运行日志')
-    } else {
-      toastStore.showToast(res.message)
-    }
-    return
-  }
-  if (!file.value) return
-  const res = await apiUpload<{ name: string }>('plugins/upload', file.value)
-  if (!res) {
-    toastStore.showToast('网络连接失败')
-  } else if (res.ok) {
-    startOp(`插件 ${res.data.name} 安装已开始，请查看运行日志`)
-    file.value = null
-    if (fileInput.value) fileInput.value.value = ''
+const handleToggle = withAsyncLock(async (name: string, enabled: boolean) => {
+  const res = await pluginStore.togglePlugin(name, enabled)
+  if (res.success) {
+    message.success(enabled ? '已启用插件' : '已禁用插件')
   } else {
-    toastStore.showToast(res.message)
+    message.error(res.message || '操作失败')
   }
-}
+})
 
-const quickOp = async (verb: 'update', name: string) => {
-  if (busy.value) return
-  const res = await apiPost<{ command: string }>('plugins/run', { command: `dsh plugin ${verb} ${name}` })
-  if (!res) {
-    toastStore.showToast('网络连接失败')
-  } else if (res.ok) {
-    startOp('插件操作已开始，请查看运行日志')
+const handleUpdate = withAsyncLock(async (name: string) => {
+  const res = await pluginStore.updatePlugin(name)
+  if (res.success) {
+    message.success(`已开始更新 ${name}`)
   } else {
-    toastStore.showToast(res.message)
+    message.error(res.message || '更新失败')
   }
-}
+})
 
-const uninstall = async (name: string) => {
-  if (busy.value) return
-  if (!confirm(`确定要卸载插件 ${name} 吗？`)) return
-  const res = await apiPost<{ command: string }>('plugins/run', { command: `dsh plugin remove ${name}` })
-  if (!res) {
-    toastStore.showToast('网络连接失败')
-  } else if (res.ok) {
-    startOp('插件操作已开始，请查看运行日志')
+const handleUninstall = withAsyncLock(async (name: string) => {
+  const res = await pluginStore.uninstallPlugin(name)
+  if (res.success) {
+    message.success(`已开始卸载 ${name}`)
   } else {
-    toastStore.showToast(res.message)
+    message.error(res.message || '卸载失败')
   }
-}
-
-const toggle = async (name: string, enabled: boolean) => {
-  if (busy.value) return
-  const res = await apiPost<{ name: string; enabled: boolean }>('plugins/toggle', { name, enabled })
-  if (!res) {
-    toastStore.showToast('网络连接失败')
-  } else if (res.ok) {
-    startOp(enabled ? `正在启用 ${name}…` : `正在禁用 ${name}…`)
-  } else {
-    toastStore.showToast(res.message)
-  }
-}
-
-let offPlugin: (() => void) | null = null
-
-const syncPluginStatus = async () => {
-  const res = await apiGet<PluginStatus>('plugins/status')
-  if (res?.ok && res.data) appStore.pluginBusy = res.data.running
-}
+})
 
 onMounted(() => {
-  refresh()
-  offPlugin = appStore.onPluginEvent(onPluginEvent)
-  // 切回本页时同步操作状态：进行中则保持指示，已结束则复位
-  syncPluginStatus()
-})
-onUnmounted(() => {
-  offPlugin?.()
+  pluginStore.fetchPlugins()
 })
 </script>
+
+<style scoped>
+:deep(.n-list-item__main) {
+  min-width: 0;
+  width: 100%;
+}
+</style>
+

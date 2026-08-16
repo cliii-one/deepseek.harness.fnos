@@ -49,15 +49,67 @@ var pluginNeedSpecs = map[pluginVerb]bool{
 
 var (
 	npmSpecRe       = regexp.MustCompile(`^(@[a-z0-9-~][\w.-]*\/)?[a-z0-9-~][\w.-]*(@[0-9A-Za-z.*+~^<>=,\- ]+)?$`)
-	gitURLRe        = regexp.MustCompile(`^(git\+)?(https?:\/\/|ssh:\/\/)[^\s;|&` + "`" + `$()]+(\.git)?(#[\w.\/-]+)?$`)
-	gitShorthandRe  = regexp.MustCompile(`^github:[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+(#[\w.\/-]+)?$`)
+	gitURLRe        = regexp.MustCompile(`^(git\+)?(https?:\/\/|ssh:\/\/)[^\s;|` + "`" + `$()]+$`)
+	gitShorthandRe  = regexp.MustCompile(`^github:[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+(?:#[^\s;|` + "`" + `$()]+)?$`)
 	localSpecRe     = regexp.MustCompile(`^(file:|\/).+$`)
 	profileNameRe   = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-	specForbiddenRe = regexp.MustCompile(`[;|&` + "`" + `$()\r\n]`)
+	specForbiddenRe = regexp.MustCompile(`[;|` + "`" + `$()\r\n]`)
 )
 
+// splitCommandLine 解析命令行字符串，支持成对单/双引号并自动剥离外层引号
+func splitCommandLine(input string) ([]string, error) {
+	var tokens []string
+	var cur strings.Builder
+	inQuote := false
+	quoteChar := byte(0)
+	escaped := false
+
+	for i := 0; i < len(input); i++ {
+		c := input[i]
+		if escaped {
+			cur.WriteByte(c)
+			escaped = false
+			continue
+		}
+		if c == '\\' {
+			escaped = true
+			continue
+		}
+		if inQuote {
+			if c == quoteChar {
+				inQuote = false
+				quoteChar = 0
+			} else {
+				cur.WriteByte(c)
+			}
+			continue
+		}
+		if c == '"' || c == '\'' {
+			inQuote = true
+			quoteChar = c
+			continue
+		}
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			if cur.Len() > 0 {
+				tokens = append(tokens, cur.String())
+				cur.Reset()
+			}
+			continue
+		}
+		cur.WriteByte(c)
+	}
+	if inQuote {
+		return nil, fmt.Errorf("引号未闭合")
+	}
+	if cur.Len() > 0 {
+		tokens = append(tokens, cur.String())
+	}
+	return tokens, nil
+}
+
 func validatePluginSpec(spec string) error {
-	if strings.TrimSpace(spec) == "" {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
 		return fmt.Errorf("包名为空")
 	}
 	if specForbiddenRe.MatchString(spec) {
@@ -82,7 +134,10 @@ type pluginCommand struct {
 
 // parsePluginCommand 仅接受 dsh plugin 形式，解析为受控 argv；非法输入一律拒绝
 func parsePluginCommand(input string) (*pluginCommand, error) {
-	fields := strings.Fields(input)
+	fields, err := splitCommandLine(strings.TrimSpace(input))
+	if err != nil {
+		return nil, err
+	}
 	if len(fields) == 0 {
 		return nil, fmt.Errorf("请输入插件命令")
 	}
@@ -167,23 +222,9 @@ type pluginListPayload struct {
 }
 
 func readProfileManifest() (deps map[string]string, bundles []string, err error) {
-	data, err := os.ReadFile(filepath.Join(pluginProfileDir(), "package.json"))
+	m, err := readProfileManifestFull()
 	if err != nil {
 		return nil, nil, err
-	}
-	var m struct {
-		Dependencies map[string]string `json:"dependencies"`
-		Dsh          *struct {
-			Profile *struct {
-				Bundles []string `json:"bundles"`
-			} `json:"profile"`
-		} `json:"dsh"`
-	}
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, nil, err
-	}
-	if m.Dependencies == nil {
-		m.Dependencies = map[string]string{}
 	}
 	if m.Dsh != nil && m.Dsh.Profile != nil {
 		bundles = m.Dsh.Profile.Bundles
@@ -498,11 +539,16 @@ func shortPluginFailReason(err error) string {
 
 func runPluginSubprocess(argv []string) error {
 	tail := newTailWriter(800)
+	outWriter := NewLogWriterInfo()
+	errWriter := NewLogWriterWarn()
+	defer outWriter.Flush()
+	defer errWriter.Flush()
+
 	cmd := exec.Command(pnpmBin(), argv...)
 	cmd.Dir = srcDir
 	cmd.Env = pluginEnv()
-	cmd.Stdout = io.MultiWriter(&logWriter{}, tail)
-	cmd.Stderr = io.MultiWriter(&logWriter{}, tail)
+	cmd.Stdout = io.MultiWriter(outWriter, tail)
+	cmd.Stderr = io.MultiWriter(errWriter, tail)
 	err := cmd.Run()
 	if err != nil {
 		return fmt.Errorf("%s", pluginFailMessage(err, tail.String()))
@@ -511,12 +557,17 @@ func runPluginSubprocess(argv []string) error {
 }
 
 func runPluginSync(argv []string) (string, error) {
+	outWriter := NewLogWriterInfo()
+	errWriter := NewLogWriterWarn()
+	defer outWriter.Flush()
+	defer errWriter.Flush()
+
 	cmd := exec.Command(pnpmBin(), argv...)
 	cmd.Dir = srcDir
 	cmd.Env = pluginEnv()
 	var buf bytes.Buffer
-	cmd.Stdout = io.MultiWriter(&logWriter{}, &buf)
-	cmd.Stderr = io.MultiWriter(&logWriter{}, &buf)
+	cmd.Stdout = io.MultiWriter(outWriter, &buf)
+	cmd.Stderr = io.MultiWriter(errWriter, &buf)
 	err := cmd.Run()
 	if err != nil {
 		return buf.String(), fmt.Errorf("%s", pluginFailMessage(err, buf.String()))
@@ -563,11 +614,10 @@ func runPluginOpWithAutoAllow(cmd *pluginCommand, doneMsg string) (string, error
 		return "", runErr
 	}
 
-	LogWarning("检测到构建脚本被 pnpm 拦截（%s），由管理器自动写入 allowBuilds 并重试", strings.Join(pkgs, ", "))
 	if err := ensureAllowBuildsFor(cmd.Profile, pluginAllowKey(cmd), pkgs); err != nil {
 		return "", fmt.Errorf("%s\n（自动配置 allowBuilds 失败: %s）", runErr.Error(), err)
 	}
-	LogInfo("已自动放行构建脚本: %s，重新执行 %s", strings.Join(pkgs, ", "), cmd.display())
+	LogWarning("构建脚本被拦截 [%s]，已自动放行并重新执行: %s", strings.Join(pkgs, ", "), cmd.display())
 	if runErr = runPluginSubprocess(cmd.argv()); runErr != nil {
 		return "", runErr
 	}
@@ -579,7 +629,7 @@ func launchPluginOp(cmd *pluginCommand, doneMsg string) {
 	go func() {
 		msg, runErr := runPluginOpWithAutoAllow(cmd, doneMsg)
 		if runErr != nil {
-			LogWarning("插件操作失败: %s", shortPluginFailReason(runErr))
+			LogWarning("插件执行失败: %s", shortPluginFailReason(runErr))
 			setPluginDone(false, runErr.Error())
 			return
 		}
@@ -589,7 +639,7 @@ func launchPluginOp(cmd *pluginCommand, doneMsg string) {
 				LogWarning("清理 allowBuilds 失败: %s", err)
 			}
 		}
-		LogInfo("插件操作完成: %s", msg)
+		LogInfo("插件执行完成: %s", msg)
 		setPluginDone(true, msg)
 	}()
 }
@@ -806,14 +856,15 @@ func handlePluginPreview(c *gin.Context) {
 	}
 	cmd, err := parsePluginCommand(req.Command)
 	if err != nil {
-		OK(c, gin.H{"ok": false, "reason": err.Error()})
+		OK(c, gin.H{"valid": false, "ok": false, "reason": err.Error()})
 		return
 	}
 	if reason := pluginPreviewError(cmd); reason != "" {
-		OK(c, gin.H{"ok": false, "reason": reason})
+		OK(c, gin.H{"valid": false, "ok": false, "reason": reason})
 		return
 	}
 	OK(c, gin.H{
+		"valid":   true,
 		"ok":      true,
 		"verb":    cmd.Verb,
 		"profile": cmd.Profile,
@@ -839,7 +890,7 @@ func handlePluginRun(c *gin.Context) {
 		Fail(c, http.StatusConflict, err.Error())
 		return
 	}
-	LogInfo("插件操作开始: %s", cmd.display())
+	LogInfo("执行插件指令: %s", cmd.display())
 
 	doneMsg := "操作完成"
 	switch cmd.Verb {
@@ -879,14 +930,14 @@ func handlePluginToggle(c *gin.Context) {
 		if req.Enabled {
 			action = "启用"
 		}
-		LogInfo("插件操作开始: %s插件 %s", action, req.Name)
+		LogInfo("切换插件状态 [%s]: %s", action, req.Name)
 		msg, err := togglePlugin(req.Name, req.Enabled)
 		if err != nil {
-			LogWarning("插件操作失败: %s", shortPluginFailReason(err))
+			LogWarning("切换插件状态失败: %s", shortPluginFailReason(err))
 			setPluginDone(false, err.Error())
 			return
 		}
-		LogInfo("插件操作完成: %s", msg)
+		LogInfo("切换插件状态完成: %s", msg)
 		setPluginDone(true, msg)
 	}()
 	OK(c, gin.H{"name": req.Name, "enabled": req.Enabled})
@@ -965,7 +1016,7 @@ func handlePluginUpload(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	LogInfo("插件包校验通过: %s (%s)", name, pkgDir)
+	LogInfo("本地插件包校验通过: %s (%s)", name, pkgDir)
 
 	if err := setPluginRunning(); err != nil {
 		Fail(c, http.StatusConflict, err.Error())
@@ -973,7 +1024,7 @@ func handlePluginUpload(c *gin.Context) {
 	}
 
 	cmd := &pluginCommand{Verb: pluginAdd, Profile: "web", Specs: []string{"file:" + pkgDir}, AllowKey: name}
-	LogInfo("插件操作开始: 安装上传插件 %s", name)
+	LogInfo("安装本地插件包: %s", name)
 	launchPluginOp(cmd, fmt.Sprintf("「%s」安装完成，重启服务后生效", name))
 	OK(c, gin.H{"command": cmd.display(), "name": name, "dir": pkgDir})
 }

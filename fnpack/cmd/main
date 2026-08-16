@@ -48,40 +48,46 @@ stop_process() {
 
     if [ -r "${PID_FILE}" ]; then
         pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
-        
-        log_msg "检测到运行中的进程 PID: ${pid}"
-        if ! check_process "${pid}"; then
-            rm -f "${PID_FILE}"
-            log_msg "进程不存在，已清理残留 PID 文件"
-        else
-            log_msg "正在向进程 PID: ${pid} 发送 SIGTERM 停止信号..."
-            kill -TERM ${pid} >> ${LOG_FILE} 2>&1
+        if check_process "${pid}"; then
+            log_msg "向主进程 PID: ${pid} 发送 SIGTERM 停止信号..."
+            kill -TERM "${pid}" >> ${LOG_FILE} 2>&1
 
             local count=0
-            while check_process "${pid}" && [ $count -lt 10 ]; do
+            while check_process "${pid}" && [ $count -lt 5 ]; do
                 sleep 1
                 count=$((count + 1))
-                log_msg "等待进程终止... (${count}秒/10秒)"
             done
 
             if check_process "${pid}"; then
-                log_err "进程 PID: ${pid} 未在 10 秒超时内停止，发送 SIGKILL。"
-                kill -KILL "${pid}"
-                sleep 1
-                rm -f "${PID_FILE}"
-            else
-                log_msg "应用进程已成功停止。"
+                log_err "主进程 PID: ${pid} 未在 5 秒内停止，发送 SIGKILL。"
+                kill -KILL "${pid}" 2>/dev/null || true
             fi
         fi
+        rm -f "${PID_FILE}"
     fi
 
-    port=${wizard_port:-3080}
-    # 先杀占用端口的子进程
-    pids=$(ss -ltnp | grep ":${port}" | grep -oP 'pid=\K[0-9]+' | sort -u)
-    [ -n "$pids" ] && kill -9 $pids 2>/dev/null
-    # 再清理 pnpm 父进程
-    pkill -9 -f 'pnpm-env/node_modules/.bin/pnpm dsh web' 2>/dev/null || true
+    # 兜底清理：harness.pid 记录的子进程组
+    local h_pid_file="${DATA_LIBRARY_PATH}/harness.pid"
+    if [ -r "${h_pid_file}" ]; then
+        local h_pid=$(cat "${h_pid_file}" 2>/dev/null | tr -d '[:space:]')
+        if [ -n "${h_pid}" ]; then
+            kill -9 -"${h_pid}" 2>/dev/null || true
+            kill -9 "${h_pid}" 2>/dev/null || true
+        fi
+        rm -f "${h_pid_file}"
+    fi
 
+    # 兜底清理：清理属于本应用所有可能目录的残留进程
+    pkill -9 -f "${TRIM_PKGVAR}" 2>/dev/null || true
+
+    SHARE_PATH="${TRIM_DATA_SHARE_PATHS%%:*}"
+    if [ -n "${SHARE_PATH}" ]; then
+        pkill -9 -f "${SHARE_PATH}" 2>/dev/null || true
+    fi
+
+    rm -f "${TRIM_APPDEST}/web.sock"
+
+    log_msg "应用进程及残留已完全停止。"
     return 0
 }
 

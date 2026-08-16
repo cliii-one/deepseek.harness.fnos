@@ -2,11 +2,12 @@
 
 ### This script is called after the user uninstalls the application.
 
-port=${wizard_port:-3080}
-# 先杀占用端口的子进程
-pids=$(ss -ltnp | grep ":${port}" | grep -oP 'pid=\K[0-9]+' | sort -u)
-[ -n "$pids" ] && kill -9 $pids 2>/dev/null
-# 再清理 pnpm 父进程
-pkill -9 -f 'pnpm-env/node_modules/.bin/pnpm dsh web' 2>/dev/null || true
+# 清理属于本应用所有可能目录的残留进程
+pkill -9 -f "${TRIM_PKGVAR}" 2>/dev/null || true
+
+SHARE_PATH="${TRIM_DATA_SHARE_PATHS%%:*}"
+if [ -n "${SHARE_PATH}" ]; then
+    pkill -9 -f "${SHARE_PATH}" 2>/dev/null || true
+fi
 
 exit 0

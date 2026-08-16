@@ -1,73 +1,155 @@
 <template>
-  <div class="space-y-6 max-w-5xl mx-auto">
-    <h1 class="text-xl font-bold text-slate-800 tracking-tight">工作区</h1>
-
-    <div v-if="!items.length"
-      class="bg-white rounded-2xl p-10 shadow-sm border border-slate-100 text-center">
-      <div class="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
-        <Icon name="workspace" :size="28" class="text-slate-400" />
+  <div class="w-full flex-1 flex flex-col gap-4 sm:gap-6">
+    <!-- 页头 -->
+    <div class="flex items-center justify-between gap-3">
+      <div class="flex items-baseline gap-2.5">
+        <h1 class="text-lg sm:text-xl font-bold text-slate-800 tracking-tight">工作区</h1>
+        <span v-if="items.length" class="text-xs text-slate-400 font-medium">
+          共 {{ items.length }} 个
+        </span>
       </div>
-      <p class="text-slate-500 text-sm">暂无工作区数据</p>
-      <p class="text-slate-400 text-xs mt-1">请先运行 DeepSeek Harness 并创建工作区</p>
+
+      <n-button
+        secondary
+        v-debounce
+        size="small"
+        class="sm:!h-9 sm:!px-4"
+        :disabled="!dataLibraryPath"
+        @click="handleOpenDataLibrary"
+      >
+        <template #icon>
+          <n-icon>
+            <Folder />
+          </n-icon>
+        </template>
+        <span>数据目录</span>
+      </n-button>
     </div>
 
-    <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <button v-for="item in items" :key="item.workspaceId"
-        @click="openWorkspace(item.path)"
-        :title="`在 FNOS 文件管理 打开 ${item.title}`"
-        class="bg-white hover:bg-slate-50 border border-slate-100 rounded-2xl p-4 text-left shadow-sm transition-colors group">
-        <div class="flex items-start gap-3">
-          <div class="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-600 group-hover:bg-blue-50 group-hover:text-fnos-blue transition-colors shrink-0">
-            <Icon name="workspaceCard" :size="20" />
-          </div>
-          <div class="min-w-0 flex-1">
-            <h3 class="text-sm font-semibold text-slate-800 truncate">{{ item.title }}</h3>
-            <p class="text-xs text-slate-400 truncate mt-0.5" :title="item.path">{{ item.path }}</p>
-            <div class="flex items-center gap-3 mt-2 text-[11px] text-slate-400">
-              <span>{{ (item.sessionIds || []).length }} 个会话</span>
-              <span v-if="item.updatedAt">更新于 {{ formatTime(item.updatedAt) }}</span>
-            </div>
-          </div>
-        </div>
-      </button>
-    </div>
+    <!-- 空状态 -->
+    <n-card v-if="!items.length" :bordered="false" class="py-12 text-center shadow-sm">
+      <n-empty description="暂无工作区数据">
+        <template #icon>
+          <n-icon :size="48" class="text-slate-300">
+            <Folder />
+          </n-icon>
+        </template>
+        <template #extra>
+          <span class="text-xs text-slate-400">请先运行 DeepSeek Harness 并在客户端创建工作区</span>
+        </template>
+      </n-empty>
+    </n-card>
+
+    <!-- 工作区卡片网格 -->
+    <n-grid v-else :cols="2" :x-gap="16" :y-gap="16" responsive="screen" item-responsive>
+      <n-gi span="2 m:1" v-for="item in items" :key="item.workspaceId">
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-card
+              hoverable
+              v-debounce
+              :bordered="false"
+              @click="handleOpenWorkspace(item.path)"
+              class="cursor-pointer transition-all shadow-sm group !h-full"
+            >
+              <n-thing>
+                <!-- 头像图标 -->
+                <template #avatar>
+                  <div
+                    class="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-blue-50 text-slate-500 group-hover:text-fnos-blue flex items-center justify-center transition-colors"
+                  >
+                    <n-icon :size="22">
+                      <Folder />
+                    </n-icon>
+                  </div>
+                </template>
+
+                <!-- 标题 -->
+                <template #header>
+                  <div class="text-sm font-semibold text-slate-800 truncate">
+                    {{ item.title }}
+                  </div>
+                </template>
+
+                <!-- 右侧会话标签 -->
+                <template #header-extra>
+                  <n-tag size="tiny" round :bordered="false" type="info">
+                    {{ (item.sessionIds || []).length }} 会话
+                  </n-tag>
+                </template>
+
+                <!-- 描述：带气泡的省略路径 -->
+                <template #description>
+                  <div class="text-xs text-slate-400 mt-1">
+                    <n-ellipsis :line-clamp="1" tooltip>
+                      {{ item.path }}
+                    </n-ellipsis>
+                  </div>
+                </template>
+
+                <!-- 底部：相对更新时间 -->
+                <template #footer>
+                  <div v-if="item.updatedAt" class="flex items-center gap-1 text-[11px] text-slate-400">
+                    <n-icon :size="12">
+                      <Clock />
+                    </n-icon>
+                    <span>更新于 <n-time :time="new Date(item.updatedAt)" type="relative" /></span>
+                  </div>
+                </template>
+              </n-thing>
+            </n-card>
+          </template>
+          在飞牛文件管理中打开 {{ item.title }}
+        </n-tooltip>
+      </n-gi>
+    </n-grid>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-import { TrimApp } from '@trimjs/web-app'
-import { useAppStore } from '../stores/app'
-import { useToastStore } from '../stores/toast'
-import Icon from '../components/Icon.vue'
+import { onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
+import {
+  NCard,
+  NButton,
+  NGrid,
+  NGi,
+  NEmpty,
+  NThing,
+  NEllipsis,
+  NTime,
+  NTag,
+  NIcon,
+  NTooltip,
+  useMessage
+} from 'naive-ui'
+import { Folder, Clock } from '@vicons/tabler'
+import { useWorkspaceStore } from '../stores/workspace'
+import { withAsyncLock } from '../utils/debounce'
 
-const appStore = useAppStore()
-const toastStore = useToastStore()
-const items = computed(() => (appStore.workspaceData.items || []).filter(Boolean))
+const workspaceStore = useWorkspaceStore()
+const message = useMessage()
 
-let trimApp: TrimApp | null = null
+const { items, dataLibraryPath } = storeToRefs(workspaceStore)
 
-const formatTime = (iso: string) => {
-  try {
-    const d = new Date(iso)
-    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-  } catch {
-    return iso
+const handleOpenDataLibrary = withAsyncLock(async () => {
+  const res = await workspaceStore.openDataLibrary()
+  if (!res.success) {
+    message.error(`打开数据目录失败：${res.message || '未知错误'}`)
   }
-}
+})
 
-const openWorkspace = async (path: string) => {
-  if (!trimApp) return
-  try {
-    await trimApp.openFileManager(path)
-  } catch (e: any) {
-    toastStore.showToast(`打开文件管理器失败：${e?.message || e}`)
+const handleOpenWorkspace = withAsyncLock(async (path: string) => {
+  const res = await workspaceStore.openWorkspace(path)
+  if (!res.success) {
+    message.error(`打开文件管理器失败：${res.message || '未知错误'}`)
   }
-}
+})
 
 onMounted(async () => {
-  trimApp = new TrimApp()
-  await trimApp.ready()
-  await appStore.fetchWorkspaceData()
+  await Promise.all([
+    workspaceStore.fetchDataLibraryPath(),
+    workspaceStore.fetchWorkspaces()
+  ])
 })
 </script>

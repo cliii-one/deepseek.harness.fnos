@@ -1,213 +1,65 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { apiGet } from '../api'
-
-export interface StatusData {
-  name: string
-  version: string
-  commit: string
-  status: string
-  uptime: string
-  started_at: number
-  build_time: string
-  app_url: string
-  last_message: string
-}
-
-export interface WorkspaceItem {
-  workspaceId: string
-  path: string
-  title: string
-  sessionIds: string[]
-  createdAt: string
-  updatedAt: string
-}
-
-export interface WorkspaceData {
-  items: WorkspaceItem[]
-  archivedSessionIds: string[]
-}
-
-export interface PluginStatus {
-  running: boolean
-  ok?: boolean
-  message?: string
-}
-
-export interface SettingsConfig {
-  server_port: number
-  proxy_port: number
-  network_proxy: string
-  reverse_proxy_url: string
-  access_password: string
-}
-
-const logListeners = new Set<(chunk: string) => void>()
-const reconnectListeners = new Set<() => void>()
-const pluginListeners = new Set<(s: PluginStatus) => void>()
+import { wsClient } from '../utils/websocket'
+import { useSystemStore } from './system'
+import { useWorkspaceStore } from './workspace'
+import { usePluginStore } from './plugin'
+import { useLogStore } from './log'
 
 export const useAppStore = defineStore('app', () => {
-  const statusData = ref<StatusData>({
-    name: 'DeepSeek Harness',
-    version: '-',
-    commit: '-',
-    status: 'stopped',
-    uptime: '-',
-    started_at: 0,
-    build_time: '-',
-    app_url: '/app/deepseek-harness/',
-    last_message: ''
-  })
-
-  const workspaceData = ref<WorkspaceData>({
-    items: [],
-    archivedSessionIds: []
-  })
-
-  const wsConnected = ref(true)
   const currentTab = ref('overview')
-  const pluginBusy = ref(false)
-  const actionBusy = ref(false)
-  const logLines = ref<string[]>([])
-  const logAutoScroll = ref(true)
-  const settingsConfig = ref<SettingsConfig | null>(null)
-  const savedSettingsConfig = ref<SettingsConfig | null>(null)
-  const pluginCmd = ref('')
-  const pluginMode = ref<'cmd' | 'upload'>('cmd')
-  const pluginFile = ref<File | null>(null)
-
-  const MAX_LOG_BYTES = 100 * 1024
-  const MAX_LOG_LINES = 5000
-  function trimLogs() {
-    const arr = logLines.value
-    let total = 0
-    for (let i = arr.length - 1; i >= 0; i--) {
-      total += arr[i].length
-      if (total > MAX_LOG_BYTES || arr.length - i > MAX_LOG_LINES) {
-        arr.splice(0, i + 1)
-        return
-      }
-    }
-  }
-  function appendLog(chunk: string) {
-    logLines.value.push(chunk)
-    trimLogs()
-  }
-  function setLogs(lines: string[]) {
-    logLines.value = lines
-    trimLogs()
-  }
-  function clearLogs() {
-    logLines.value = []
-  }
+  let isInitialized = false
 
   function setTab(tab: string) {
     currentTab.value = tab
   }
 
-  let ws: WebSocket | null = null
-  let opened = false
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  const RECONNECT_DELAY = 3000
+  function init() {
+    if (isInitialized) return
+    isInitialized = true
 
-  async function fetchWorkspaceData() {
-    const res = await apiGet<WorkspaceData>('workspace/list')
-    if (res?.ok && res.data) {
-      workspaceData.value = res.data
-    }
-  }
+    const systemStore = useSystemStore()
+    const workspaceStore = useWorkspaceStore()
+    const pluginStore = usePluginStore()
+    const logStore = useLogStore()
 
-  function connectWS() {
-    if (ws) return
-    try {
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      ws = new WebSocket(`${proto}//${window.location.host}/app/deepseek-harness/api/ws`)
-    } catch {
-      ws = null
-      scheduleReconnect()
-      return
-    }
+    systemStore.startClock()
 
-    ws.onopen = () => {
-      if (opened) reconnectListeners.forEach(fn => fn())
-      opened = true
-      wsConnected.value = true
-    }
+    // 绑定 WebSocket 事件分发
+    wsClient.on('connectionChange', (connected) => {
+      systemStore.setWsConnected(connected)
+    })
 
-    ws.onmessage = (e) => {
-      let msg: { type: string; data?: unknown }
-      try {
-        msg = JSON.parse(e.data as string)
-      } catch { return }
-      if (msg.type === 'status' && msg.data) {
-        statusData.value = msg.data as StatusData
-      } else if (msg.type === 'workspace' && msg.data) {
-        workspaceData.value = msg.data as WorkspaceData
-      } else if (msg.type === 'log' && typeof msg.data === 'string') {
-        logListeners.forEach(fn => fn(msg.data as string))
-      } else if (msg.type === 'plugin' && msg.data) {
-        const s = msg.data as PluginStatus
-        pluginBusy.value = s.running
-        pluginListeners.forEach(fn => fn(s))
-      }
-    }
+    wsClient.on('status', (data) => {
+      systemStore.updateStatus(data)
+    })
 
-    ws.onclose = () => {
-      ws = null
-      wsConnected.value = false
-      scheduleReconnect()
-    }
+    wsClient.on('workspace', (data) => {
+      workspaceStore.updateWorkspaceData(data)
+    })
 
-    ws.onerror = () => {
-      ws?.close()
-    }
-  }
+    wsClient.on('plugin', (status) => {
+      pluginStore.updatePluginStatus(status)
+    })
 
-  function scheduleReconnect() {
-    if (reconnectTimer !== null) return
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null
-      connectWS()
-    }, RECONNECT_DELAY)
-  }
+    wsClient.on('log', (chunk) => {
+      logStore.appendChunk(chunk)
+    })
 
-  function onLogChunk(fn: (chunk: string) => void): () => void {
-    logListeners.add(fn)
-    return () => { logListeners.delete(fn) }
-  }
+    wsClient.on('reconnected', () => {
+      // 重新连接后主动拉取一次最新工作区与插件与日志
+      workspaceStore.fetchWorkspaces()
+      pluginStore.fetchPlugins()
+      logStore.fetchLogs()
+    })
 
-  function onReconnect(fn: () => void): () => void {
-    reconnectListeners.add(fn)
-    return () => { reconnectListeners.delete(fn) }
-  }
-
-  function onPluginEvent(fn: (s: PluginStatus) => void): () => void {
-    pluginListeners.add(fn)
-    return () => { pluginListeners.delete(fn) }
+    // 建立连接
+    wsClient.connect()
   }
 
   return {
-    statusData,
-    workspaceData,
-    wsConnected,
     currentTab,
-    pluginBusy,
-    actionBusy,
-    logLines,
-    logAutoScroll,
-    settingsConfig,
-    savedSettingsConfig,
-    pluginCmd,
-    pluginMode,
-    pluginFile,
     setTab,
-    connectWS,
-    fetchWorkspaceData,
-    onLogChunk,
-    onReconnect,
-    onPluginEvent,
-    appendLog,
-    setLogs,
-    clearLogs
+    init
   }
 })

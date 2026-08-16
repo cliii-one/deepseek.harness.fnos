@@ -1,190 +1,275 @@
 <template>
-  <div class="space-y-6 max-w-7xl mx-auto">
-    <h1 class="text-xl font-bold text-slate-800 tracking-tight">概览</h1>
-
-    <!-- 状态卡片 -->
-    <div class="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-slate-100">
-      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div class="flex items-center gap-4">
-          <button @click="openFileManager"
-            :disabled="!dataLibraryPath"
-            class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center shadow-inner shrink-0 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            :class="dataLibraryPath ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800' : 'bg-slate-50 text-slate-300'"
-            title="打开数据目录">
-            <Icon name="monitor" :size="30" />
-          </button>
-          <div>
-            <h2 class="text-base sm:text-lg font-bold text-slate-800">{{ statusData.name }}</h2>
-            <p class="text-xs sm:text-sm text-slate-400 mt-0.5">
-              版本: {{ statusData.version }} <span class="text-slate-300 mx-1">|</span> Commit: {{ statusData.commit }}
-            </p>
-          </div>
-        </div>
-
-        <button @click="openApp" :disabled="!isRunning"
-          class="w-full sm:w-auto px-5 py-2.5 bg-fnos-blue hover:bg-fnos-blue-hover disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium rounded-xl text-sm transition-colors shadow-sm flex items-center justify-center gap-2 shrink-0">
-          <Icon name="external" :size="16" />
-          <span>打开</span>
-        </button>
-      </div>
-
-      <div class="grid grid-cols-3 gap-2 sm:gap-4 mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-slate-100 text-xs sm:text-sm text-center">
-        <div>
-          <div class="text-slate-400 text-[10px] sm:text-xs font-medium mb-1">运行状态</div>
-          <span class="inline-flex items-center px-2 sm:px-3 py-0.5 rounded-full text-[10px] sm:text-xs font-medium border" :class="statusMeta.cls">
-            <Icon v-if="statusMeta.spin" name="spinner" :size="12" class="mr-1 sm:mr-1.5" />
-            <span v-else class="w-1 sm:w-1.5 h-1 sm:h-1.5 rounded-full mr-1 sm:mr-1.5" :class="statusMeta.dot" />
-            {{ statusMeta.label }}
-          </span>
-        </div>
-        <div v-for="f in infoFields" :key="f.label">
-          <div class="text-slate-400 text-[10px] sm:text-xs font-medium mb-1">{{ f.label }}</div>
-          <div class="text-slate-800 font-medium text-sm sm:text-base truncate">{{ f.value }}</div>
-        </div>
-      </div>
-
-      <!-- 实时消息（构建进度 / 异常原因） -->
-      <div v-if="statusData.last_message"
-        class="mt-4 px-4 py-2.5 rounded-xl text-xs font-medium flex items-center gap-2 border"
-        :class="isBuilding ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-amber-50 text-amber-600 border-amber-100'">
-        <Icon :name="isBuilding ? 'info' : 'warning'" :size="14" />
-        <span class="truncate">{{ statusData.last_message }}</span>
-      </div>
-
-      <!-- 实时连接断开提示 -->
-      <div v-if="!wsConnected"
-        class="mt-4 px-4 py-2.5 rounded-xl text-xs font-medium flex items-center gap-2 border bg-rose-50 text-rose-600 border-rose-100">
-        <Icon name="warning" :size="14" />
-        <span>实时连接已断开，正在自动重连…</span>
-      </div>
+  <div class="w-full flex-1 flex flex-col gap-4 sm:gap-6">
+    <!-- 桌面端页头 -->
+    <div class="hidden sm:flex items-center justify-between">
+      <h1 class="text-xl font-bold text-slate-800 tracking-tight">概览</h1>
     </div>
 
-    <!-- 运行操作 -->
-    <div class="space-y-4">
-      <h2 class="text-lg font-bold text-slate-800 tracking-tight">运行操作</h2>
-      <div class="grid grid-cols-2 gap-3 sm:gap-5">
-        <button v-for="a in actionCards" :key="a.label" @click="doAction(a.action)" :disabled="a.disabled"
-          class="bg-white hover:bg-slate-50 border border-slate-100 rounded-2xl p-4 sm:p-7 flex flex-col items-center justify-center gap-2 sm:gap-3 transition-colors shadow-sm group disabled:opacity-50 disabled:cursor-not-allowed">
-          <div class="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center text-slate-600 transition-colors" :class="a.hover">
-            <Icon :name="a.icon" :size="22" />
+    <!-- 状态监控核心卡片 -->
+    <n-card :bordered="false" class="shadow-sm rounded-2xl">
+      <div class="flex flex-col">
+        <!-- 上半部分：应用标题/版本 + 右侧主操作（进入 Harness） -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div class="text-base sm:text-lg font-bold text-slate-800 tracking-tight leading-tight">
+              {{ statusData.name || 'DeepSeek Harness' }}
+            </div>
+            <div class="text-xs text-slate-400 flex items-center gap-2 mt-1">
+              <span>版本: {{ statusData.version || '0.1.0' }}</span>
+              <span class="text-slate-200">|</span>
+              <span>Commit: {{ statusData.commit || '-' }}</span>
+            </div>
           </div>
-          <span class="text-sm font-medium text-slate-700 group-hover:text-slate-900">{{ a.label }}</span>
-        </button>
+
+          <n-button
+            type="primary"
+            size="large"
+            v-debounce
+            :disabled="!isRunning"
+            @click="systemStore.openHarnessApp"
+            class="w-full sm:w-auto px-6 shadow-sm shadow-fnos-blue/20 font-medium"
+          >
+            <template #icon>
+              <n-icon :size="18">
+                <ExternalLink />
+              </n-icon>
+            </template>
+            <span>进入 Harness</span>
+          </n-button>
+        </div>
+
+        <!-- 原生分割线 -->
+        <n-divider class="!my-4 sm:!my-5" />
+
+        <!-- 下半部分：3 列运行指标网格 -->
+        <n-grid :cols="3" :x-gap="8" class="text-center">
+          <n-gi>
+            <n-statistic label="运行状态">
+              <template #default>
+                <div class="flex justify-center mt-0.5">
+                  <n-tag :type="statusTagType" size="small" round :bordered="false">
+                    <template #icon v-if="isBuilding">
+                      <n-spin :size="12" class="mr-1" />
+                    </template>
+                    {{ statusLabel }}
+                  </n-tag>
+                </div>
+              </template>
+            </n-statistic>
+          </n-gi>
+
+          <n-gi>
+            <n-statistic label="运行时间">
+              <template #default>
+                <div class="text-sm sm:text-base font-semibold text-slate-700 mt-0.5">
+                  {{ uptimeText }}
+                </div>
+              </template>
+            </n-statistic>
+          </n-gi>
+
+          <n-gi>
+            <n-statistic label="构建时间">
+              <template #default>
+                <div
+                  class="text-xs sm:text-sm font-medium text-slate-600 mt-0.5 truncate"
+                  :title="statusData.build_time || '-'"
+                >
+                  {{ statusData.build_time || '-' }}
+                </div>
+              </template>
+            </n-statistic>
+          </n-gi>
+        </n-grid>
+
+        <!-- 实时构建进度 / 错误信息 -->
+        <div v-if="statusData.last_message" class="mt-4">
+          <n-alert :type="isBuilding ? 'info' : 'warning'" :show-icon="true">
+            {{ statusData.last_message }}
+          </n-alert>
+        </div>
+
+        <!-- 实时连接断开提示 -->
+        <div v-if="!wsConnected" class="mt-4">
+          <n-alert type="error" :show-icon="true">
+            实时连接已断开，正在自动重连…
+          </n-alert>
+        </div>
       </div>
+    </n-card>
+
+    <!-- 运行操作区 -->
+    <div class="space-y-4">
+      <h2 class="text-lg font-bold text-slate-800 tracking-tight">运行控制</h2>
+      <n-grid :cols="4" :x-gap="16" :y-gap="16" responsive="screen" item-responsive>
+        <n-gi span="2 m:1" v-for="a in actionCards" :key="a.label">
+          <!-- 若需要二次确认（停止、重建），接入 NPopconfirm -->
+          <n-popconfirm
+            v-if="a.confirmText && !a.disabled"
+            @positive-click="handleAction(a.action)"
+            :positive-text="'确认'"
+            :negative-text="'取消'"
+          >
+            <template #trigger>
+              <n-card
+                hoverable
+                v-debounce
+                :bordered="false"
+                class="cursor-pointer text-center transition-all !p-2 sm:!p-4 shadow-sm group rounded-2xl !h-full"
+                :class="{ 'opacity-50 !cursor-not-allowed': a.disabled }"
+              >
+                <div class="flex flex-col items-center justify-center gap-2.5 py-3">
+                  <div
+                    class="w-12 h-12 rounded-2xl flex items-center justify-center transition-colors"
+                    :class="a.iconBg"
+                  >
+                    <n-icon :size="24" :class="a.iconColor">
+                      <component :is="a.icon" />
+                    </n-icon>
+                  </div>
+                  <span class="text-sm font-medium text-slate-700 group-hover:text-slate-900">
+                    {{ a.label }}
+                  </span>
+                </div>
+              </n-card>
+            </template>
+            {{ a.confirmText }}
+          </n-popconfirm>
+
+          <!-- 常规操作卡片 -->
+          <n-card
+            v-else
+            hoverable
+            v-debounce
+            :bordered="false"
+            class="cursor-pointer text-center transition-all !p-2 sm:!p-4 shadow-sm group rounded-2xl !h-full"
+            :class="{ 'opacity-50 !cursor-not-allowed': a.disabled }"
+            @click="!a.disabled && handleAction(a.action)"
+          >
+            <div class="flex flex-col items-center justify-center gap-2.5 py-3">
+              <div
+                class="w-12 h-12 rounded-2xl flex items-center justify-center transition-colors"
+                :class="a.iconBg"
+              >
+                <n-icon :size="24" :class="a.iconColor">
+                  <component :is="a.icon" />
+                </n-icon>
+              </div>
+              <span class="text-sm font-medium text-slate-700 group-hover:text-slate-900">
+                {{ a.label }}
+              </span>
+            </div>
+          </n-card>
+        </n-gi>
+      </n-grid>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { TrimApp } from '@trimjs/web-app'
-import { useAppStore } from '../stores/app'
-import { apiGet, apiPost } from '../api'
-import { useToastStore } from '../stores/toast'
-import Icon, { type IconName } from '../components/Icon.vue'
+import { computed, type Component } from 'vue'
+import { storeToRefs } from 'pinia'
+import {
+  NCard,
+  NDivider,
+  NButton,
+  NTag,
+  NGrid,
+  NGi,
+  NStatistic,
+  NAlert,
+  NSpin,
+  NIcon,
+  NPopconfirm,
+  useMessage
+} from 'naive-ui'
+import {
+  ExternalLink,
+  PlayerPlay,
+  PlayerStop,
+  Refresh,
+  Download,
+  Tools
+} from '@vicons/tabler'
+import { useSystemStore } from '../stores/system'
+import { withAsyncLock } from '../utils/debounce'
 
-const appStore = useAppStore()
-const toastStore = useToastStore()
-const statusData = computed(() => appStore.statusData)
-const wsConnected = computed(() => appStore.wsConnected)
+const systemStore = useSystemStore()
+const message = useMessage()
 
-const loading = computed(() => appStore.actionBusy)
-const dataLibraryPath = ref('')
-let trimApp: TrimApp | null = null
-
-const isRunning = computed(() => statusData.value.status === 'running')
-const isBuilding = computed(() => statusData.value.status === 'building')
-
-const statusMeta = computed(() => {
-  if (isRunning.value) return { label: '运行中', cls: 'bg-emerald-50 text-emerald-600 border-emerald-100', dot: 'bg-emerald-500' }
-  if (isBuilding.value) return { label: '源码构建中', cls: 'bg-blue-50 text-blue-600 border-blue-100', spin: true }
-  return { label: '已停止', cls: 'bg-slate-100 text-slate-500 border-slate-200', dot: 'bg-slate-400' }
-})
-
-const infoFields = computed(() => [
-  { label: '运行时间', value: uptimeText.value },
-  { label: '构建时间', value: statusData.value.build_time }
-])
-
-// 运行时长本地计算（started_at + 每秒刷新）
-const now = ref(Date.now())
-let nowTimer: ReturnType<typeof setInterval> | null = null
-
-onMounted(async () => {
-  nowTimer = setInterval(() => { now.value = Date.now() }, 1000)
-  trimApp = new TrimApp()
-  await trimApp.ready()
-  const res = await apiGet<{ data_library_path?: string }>('config')
-  if (res?.ok && res.data.data_library_path) {
-    dataLibraryPath.value = res.data.data_library_path
-  }
-})
-onUnmounted(() => {
-  if (nowTimer !== null) clearInterval(nowTimer)
-})
-
-const formatDuration = (total: number): string => {
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const s = total % 60
-  if (h > 0) return `${h}小时${m}分${s}秒`
-  if (m > 0) return `${m}分${s}秒`
-  return `${s}秒`
-}
-
-const uptimeText = computed(() => {
-  const s = statusData.value
-  if (s.status !== 'running' || !s.started_at) return '-'
-  const secs = Math.max(0, Math.floor((now.value - s.started_at * 1000) / 1000))
-  return formatDuration(secs)
-})
+const {
+  statusData,
+  wsConnected,
+  actionBusy: loading,
+  isRunning,
+  isBuilding,
+  statusTagType,
+  statusLabel,
+  uptimeText
+} = storeToRefs(systemStore)
 
 interface ActionCard {
   action: string
-  icon: IconName
+  icon: Component
   label: string
-  hover: string
+  iconBg: string
+  iconColor: string
   disabled: boolean
+  confirmText?: string
 }
 
 const actionCards = computed<ActionCard[]>(() => [
   isRunning.value
-    ? { action: 'stop', icon: 'stop', label: '停止服务', hover: 'group-hover:bg-rose-50 group-hover:text-rose-600', disabled: loading.value }
-    : { action: 'start', icon: 'play', label: '启动服务', hover: 'group-hover:bg-blue-50 group-hover:text-fnos-blue', disabled: loading.value || isBuilding.value },
-  { action: 'restart', icon: 'refresh', label: '重启服务', hover: 'group-hover:bg-amber-50 group-hover:text-amber-600', disabled: loading.value || !isRunning.value || isBuilding.value },
-  { action: 'upgrade', icon: 'download', label: '拉取更新', hover: 'group-hover:bg-blue-50 group-hover:text-fnos-blue', disabled: loading.value || isBuilding.value },
-  { action: 'rebuild', icon: 'tools', label: '强制重建', hover: 'group-hover:bg-purple-50 group-hover:text-purple-600', disabled: loading.value || isBuilding.value }
+    ? {
+        action: 'stop',
+        icon: PlayerStop,
+        label: '停止服务',
+        iconBg: 'bg-rose-50 group-hover:bg-rose-100',
+        iconColor: 'text-rose-600',
+        disabled: loading.value,
+        confirmText: '确定要停止 DeepSeek Harness 服务吗？'
+      }
+    : {
+        action: 'start',
+        icon: PlayerPlay,
+        label: '启动服务',
+        iconBg: 'bg-emerald-50 group-hover:bg-emerald-100',
+        iconColor: 'text-emerald-600',
+        disabled: loading.value || isBuilding.value
+      },
+  {
+    action: 'restart',
+    icon: Refresh,
+    label: '重启服务',
+    iconBg: 'bg-amber-50 group-hover:bg-amber-100',
+    iconColor: 'text-amber-600',
+    disabled: loading.value || !isRunning.value || isBuilding.value
+  },
+  {
+    action: 'upgrade',
+    icon: Download,
+    label: '拉取更新',
+    iconBg: 'bg-blue-50 group-hover:bg-blue-100',
+    iconColor: 'text-fnos-blue',
+    disabled: loading.value || isBuilding.value
+  },
+  {
+    action: 'rebuild',
+    icon: Tools,
+    label: '强制重建',
+    iconBg: 'bg-purple-50 group-hover:bg-purple-100',
+    iconColor: 'text-purple-600',
+    disabled: loading.value || isBuilding.value,
+    confirmText: '强制重建将重新拉取依赖并编译，耗时较长，确定继续？'
+  }
 ])
 
-const openFileManager = async () => {
-  if (!trimApp || !dataLibraryPath.value) return
-  try {
-    await trimApp.openFileManager(dataLibraryPath.value)
-  } catch (e: any) {
-    toastStore.showToast(`打开文件管理器失败：${e?.message || e}`)
+const handleAction = withAsyncLock(async (action: string) => {
+  const res = await systemStore.sendAction(action)
+  if (res.success) {
+    message.success('指令已发送')
+  } else {
+    message.error(res.message || '操作失败')
   }
-}
-
-const openApp = async () => {
-  const res = await apiGet<{ reverse_proxy_url?: string }>('config')
-  if (res?.ok && res.data.reverse_proxy_url) {
-    window.open(res.data.reverse_proxy_url, '_blank')
-    return
-  }
-  const appUrl = statusData.value.app_url
-  if (appUrl?.startsWith(':')) {
-    window.open(`https://${window.location.hostname}${appUrl}`, '_blank')
-  }
-}
-
-const doAction = async (action: string) => {
-  appStore.actionBusy = true
-  const res = await apiPost('action', { action })
-  if (!res) {
-    toastStore.showToast('网络连接失败')
-  } else if (!res.ok) {
-    toastStore.showToast(res.message)
-  }
-  appStore.actionBusy = false
-}
+})
 </script>

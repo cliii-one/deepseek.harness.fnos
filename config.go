@@ -28,7 +28,7 @@ var (
 
 func InitConfig(pkgVar string) {
 	configFilePath = filepath.Join(pkgVar, "config.json")
-	globalConfig = Config{ServerPort: 3080, ProxyPort: 2299, DataLibraryPath: pkgVar}
+	globalConfig = Config{ServerPort: 2298, ProxyPort: 2299, DataLibraryPath: pkgVar}
 	data, err := os.ReadFile(configFilePath)
 	if err != nil {
 		return

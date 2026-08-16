@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 )
 
@@ -72,9 +75,79 @@ func LogFatal(format string, args ...any) {
 	os.Exit(1)
 }
 
-// AppendToLog 将子进程输出写入日志
-func AppendToLog(data []byte) {
-	if logOutput != nil {
-		_, _ = logOutput.Write(data)
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\([a-zA-Z]`)
+
+func cleanLogLine(b []byte) string {
+	s := string(b)
+	s = ansiRegex.ReplaceAllString(s, "")
+	s = strings.TrimRight(s, "\r\n ")
+	s = strings.TrimLeft(s, "\r\n")
+	return s
+}
+
+// LineLogWriter 行缓冲写入器，将外部子进程流转换为标准逐行日志
+type LineLogWriter struct {
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	logFunc func(format string, args ...any)
+}
+
+// NewLogWriterInfo 创建 INFO 级别行缓冲写入器
+func NewLogWriterInfo() *LineLogWriter {
+	return &LineLogWriter{logFunc: LogInfo}
+}
+
+// NewLogWriterWarn 创建 WARN 级别行缓冲写入器
+func NewLogWriterWarn() *LineLogWriter {
+	return &LineLogWriter{logFunc: LogWarning}
+}
+
+// NewLogWriter 根据级别创建行缓冲写入器
+func NewLogWriter(level string) *LineLogWriter {
+	switch strings.ToUpper(strings.TrimSpace(level)) {
+	case "WARN", "WARNING":
+		return NewLogWriterWarn()
+	default:
+		return NewLogWriterInfo()
 	}
+}
+
+func (w *LineLogWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n := len(p)
+	w.buf.Write(p)
+	for {
+		b := w.buf.Bytes()
+		idx := bytes.IndexByte(b, '\n')
+		if idx < 0 {
+			break
+		}
+		line := b[:idx]
+		clean := cleanLogLine(line)
+		if clean != "" {
+			w.logFunc("%s", clean)
+		}
+		w.buf.Next(idx + 1)
+	}
+	return n, nil
+}
+
+// Flush 刷出缓冲区残留内容
+func (w *LineLogWriter) Flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.buf.Len() > 0 {
+		clean := cleanLogLine(w.buf.Bytes())
+		w.buf.Reset()
+		if clean != "" {
+			w.logFunc("%s", clean)
+		}
+	}
+}
+
+// Close 实现 io.Closer 接口
+func (w *LineLogWriter) Close() error {
+	w.Flush()
+	return nil
 }

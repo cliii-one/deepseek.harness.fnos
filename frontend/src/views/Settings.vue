@@ -1,156 +1,207 @@
 <template>
-  <div class="space-y-6 max-w-3xl mx-auto">
-    <div class="flex items-center justify-between">
-      <h1 class="text-xl font-bold text-slate-800 tracking-tight">应用设置</h1>
-      <div class="flex items-center gap-2">
-        <span v-if="loadError"
-          class="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">
-          配置加载失败，已禁用保存
-        </span>
-        <span v-if="saveError"
-          class="text-xs font-medium text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">
-          保存失败
-        </span>
-      </div>
+  <div class="w-full flex-1 flex flex-col gap-4 sm:gap-6">
+    <!-- 桌面端页头 -->
+    <n-page-header class="hidden sm:block">
+      <template #title>
+        <div class="text-xl font-bold text-slate-800 tracking-tight">应用设置</div>
+      </template>
+      <template #extra>
+        <n-space :size="8">
+          <n-tag v-if="loadError" type="error" size="small" round :bordered="false">
+            配置加载失败，已禁用保存
+          </n-tag>
+          <n-tooltip v-if="saveError" trigger="hover">
+            <template #trigger>
+              <n-tag type="error" size="small" round :bordered="false" class="cursor-help">
+                保存失败
+              </n-tag>
+            </template>
+            {{ lastErrorMessage || '保存失败，请检查端口是否被占用或格式是否有误' }}
+          </n-tooltip>
+        </n-space>
+      </template>
+    </n-page-header>
+
+    <!-- 移动端错误提示栏 -->
+    <div v-if="loadError || saveError" class="sm:hidden">
+      <n-alert type="error" :show-icon="true" class="rounded-xl">
+        {{ loadError ? '配置加载失败，已禁用自动保存' : (lastErrorMessage || '配置保存失败，请检查设置') }}
+      </n-alert>
     </div>
 
     <template v-if="configLoaded">
-      <!-- 服务配置 -->
-      <section class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-5">
-        <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-3">服务配置</h2>
+      <!-- 服务网络端口配置卡片 -->
+      <n-card title="核心服务" :bordered="false" class="shadow-sm">
+        <n-form :model="config" label-placement="top" size="medium">
+          <n-grid :cols="2" :x-gap="20" :y-gap="16" responsive="screen" item-responsive>
+            <n-gi span="2 m:1">
+              <n-form-item>
+                <template #label>
+                  <div class="flex items-center gap-1.5">
+                    <span>内部监听端口</span>
+                    <n-tooltip trigger="hover">
+                      <template #trigger>
+                        <n-icon size="14" class="text-slate-400 cursor-help">
+                          <Help />
+                        </n-icon>
+                      </template>
+                      DeepSeek Harness 本地后端进程监听端口，默认 2298
+                    </n-tooltip>
+                  </div>
+                </template>
+                <n-input-number v-model:value="config.server_port" :min="1" :max="65535" :update-value-on-input="false"
+                  placeholder="2298" class="w-full" />
+              </n-form-item>
+            </n-gi>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div v-for="f in portFields" :key="f.key" class="space-y-1">
-            <label class="block text-xs font-semibold text-slate-700">{{ f.label }}</label>
-            <input type="number" v-model.number="config[f.key]" :placeholder="f.placeholder" :class="inputCls">
-            <p class="text-[11px] text-slate-400">{{ f.hint }}</p>
-          </div>
-        </div>
+            <n-gi span="2 m:1">
+              <n-form-item>
+                <template #label>
+                  <div class="flex items-center gap-1.5">
+                    <span>反向代理端口</span>
+                    <n-tooltip trigger="hover">
+                      <template #trigger>
+                        <n-icon size="14" class="text-slate-400 cursor-help">
+                          <Help />
+                        </n-icon>
+                      </template>
+                      对外暴露的代理访问端口 (默认 2299)，用于 Web 客户端直连
+                    </n-tooltip>
+                  </div>
+                </template>
+                <n-input-number v-model:value="config.proxy_port" :min="1" :max="65535" :update-value-on-input="false"
+                  placeholder="2299" class="w-full" />
+              </n-form-item>
+            </n-gi>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div class="space-y-1">
-            <label class="block text-xs font-semibold text-slate-700">反向代理地址</label>
-            <input type="url" v-model="config.reverse_proxy_url" placeholder="例如 https://dsh.example.com:2299"
-              :class="inputCls">
-            <p class="text-[11px] text-slate-400">概览页「打开」按钮跳转地址。</p>
-          </div>
-          <div class="space-y-1">
-            <label class="block text-xs font-semibold text-slate-700">访问密码</label>
-            <input type="password" v-model="config.access_password" placeholder="留空则不启用" :class="inputCls"
-              autocomplete="new-password">
-            <p class="text-[11px] text-slate-400">反向代理端口访问密码。</p>
-          </div>
-        </div>
-      </section>
+            <n-gi span="2 m:1">
+              <n-form-item>
+                <template #label>
+                  <div class="flex items-center gap-1.5">
+                    <span>外部访问地址</span>
+                    <n-tooltip trigger="hover">
+                      <template #trigger>
+                        <n-icon size="14" class="text-slate-400 cursor-help">
+                          <Help />
+                        </n-icon>
+                      </template>
+                      点击概览页「进入 Harness」时跳转的绝对 URL（如 https://dsh.nas.com）
+                    </n-tooltip>
+                  </div>
+                </template>
+                <n-input v-model:value="config.reverse_proxy_url" :update-value-on-input="false"
+                  placeholder="例如 https://dsh.example.com:2299" clearable />
+              </n-form-item>
+            </n-gi>
 
-      <!-- 网络代理 -->
-      <section class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-5">
-        <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-3">代理配置</h2>
-        <div class="space-y-1">
-          <label class="block text-xs font-semibold text-slate-700">网络代理 (HTTP / SOCKS5)</label>
-          <input type="text" v-model="config.network_proxy"
-            placeholder="例如 http://192.168.1.100:7890 或 socks5://192.168.1.100:7890" :class="inputCls">
-          <p class="text-[11px] text-slate-400">用于拉取 Git 代码与 npm 下载，留空使用直连。</p>
-        </div>
-      </section>
+            <n-gi span="2 m:1">
+              <n-form-item>
+                <template #label>
+                  <div class="flex items-center gap-1.5">
+                    <span>访问控制密码</span>
+                    <n-tooltip trigger="hover">
+                      <template #trigger>
+                        <n-icon size="14" class="text-slate-400 cursor-help">
+                          <Help />
+                        </n-icon>
+                      </template>
+                      反向代理端口的访问密码，留空则不开启访问校验
+                    </n-tooltip>
+                  </div>
+                </template>
+                <n-input type="password" show-password-on="click" v-model:value="config.access_password"
+                  :update-value-on-input="false" placeholder="留空则不启用密码保护" autocomplete="new-password" />
+              </n-form-item>
+            </n-gi>
+          </n-grid>
+        </n-form>
+      </n-card>
 
+      <!-- 外网代理卡片 -->
+      <n-card title="网络代理" :bordered="false" class="shadow-sm">
+        <n-form :model="config" label-placement="top" size="medium">
+          <n-form-item>
+            <template #label>
+              <div class="flex items-center gap-1.5">
+                <span>网络代理地址 (HTTP / SOCKS5)</span>
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-icon size="14" class="text-slate-400 cursor-help">
+                      <Help />
+                    </n-icon>
+                  </template>
+                  用于 Git Clone 拉取仓库，留空使用系统直连
+                </n-tooltip>
+              </div>
+            </template>
+            <n-input v-model:value="config.network_proxy" :update-value-on-input="false"
+              placeholder="例如 http://192.168.1.100:7890 或 socks5://192.168.1.100:7890" clearable />
+          </n-form-item>
+        </n-form>
+      </n-card>
     </template>
 
-    <!-- 加载占位 -->
+    <!-- 骨架占位屏 -->
     <template v-else>
-      <section class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-5 animate-pulse">
-        <div class="h-5 w-32 bg-slate-200 rounded"></div>
-        <div class="space-y-4 pt-3">
-          <div v-for="i in 2" :key="i" class="space-y-1">
-            <div class="h-3 w-28 bg-slate-200 rounded"></div>
-            <div class="h-9 bg-slate-100 rounded-xl"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-5 animate-pulse">
-        <div class="h-5 w-24 bg-slate-200 rounded"></div>
-        <div class="space-y-1 pt-3">
-          <div class="h-3 w-36 bg-slate-200 rounded"></div>
-          <div class="h-9 bg-slate-100 rounded-xl"></div>
-          <div class="h-2.5 w-48 bg-slate-100 rounded"></div>
-        </div>
-      </section>
+      <n-card :bordered="false" class="space-y-4 shadow-sm">
+        <n-skeleton text style="width: 25%" />
+        <n-skeleton text :repeat="4" />
+      </n-card>
+      <n-card :bordered="false" class="space-y-4 shadow-sm">
+        <n-skeleton text style="width: 20%" />
+        <n-skeleton text :repeat="2" />
+      </n-card>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
-import { apiGet, apiPost } from '../api'
-import { useAppStore, type SettingsConfig } from '../stores/app'
+import { onMounted, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import {
+  NPageHeader,
+  NCard,
+  NForm,
+  NFormItem,
+  NGrid,
+  NGi,
+  NInput,
+  NInputNumber,
+  NTag,
+  NSpace,
+  NAlert,
+  NTooltip,
+  NSkeleton,
+  NIcon,
+  useMessage
+} from 'naive-ui'
+import { Help } from '@vicons/tabler'
+import { useConfigStore } from '../stores/config'
 
-const appStore = useAppStore()
+const configStore = useConfigStore()
+const message = useMessage()
 
-const config = ref<SettingsConfig>({
-  server_port: 3080,
-  proxy_port: 2299,
-  network_proxy: '',
-  reverse_proxy_url: '',
-  access_password: ''
-})
-
-const inputCls = 'w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:border-fnos-blue focus:bg-white transition-colors'
-
-const portFields: { key: 'server_port' | 'proxy_port'; label: string; placeholder: string; hint: string }[] = [
-  { key: 'server_port', label: '服务监听端口', placeholder: '3080', hint: 'DeepSeek Harness 内部监听端口 (默认 3080)' },
-  { key: 'proxy_port', label: '反向代理端口', placeholder: '2299', hint: '处理后的对外访问端口 (默认 2299)，可用于反向代理。' }
-]
-
-const saveError = ref(false)
-const loadError = ref(false)
-const configLoaded = ref(false)
-let skipWatch = true
-let savedConfig: SettingsConfig | null = null
+const { config, loadError, saveError, lastErrorMessage, configLoaded } = storeToRefs(configStore)
 
 onMounted(async () => {
-  if (appStore.settingsConfig) {
-    config.value = { ...appStore.settingsConfig }
-    savedConfig = appStore.savedSettingsConfig ? { ...appStore.savedSettingsConfig } : { ...config.value }
-  } else {
-    const res = await apiGet<Partial<SettingsConfig>>('config')
-    if (res?.ok && res.data) {
-      config.value = { ...config.value, ...res.data }
-      savedConfig = { ...config.value }
-      appStore.settingsConfig = { ...config.value }
-      appStore.savedSettingsConfig = { ...savedConfig }
-    } else {
-      loadError.value = true
-    }
+  await configStore.fetchConfig()
+  if (loadError.value) {
+    message.error('加载配置失败')
   }
-  skipWatch = false
-  configLoaded.value = true
 })
 
-function configsEqual(a: SettingsConfig, b: SettingsConfig): boolean {
-  return (
-    a.server_port === b.server_port &&
-    a.proxy_port === b.proxy_port &&
-    a.network_proxy === b.network_proxy &&
-    a.reverse_proxy_url === b.reverse_proxy_url &&
-    a.access_password === b.access_password
-  )
-}
-
-let saveTimer: ReturnType<typeof setTimeout> | null = null
-watch(config, (cfg) => {
-  appStore.settingsConfig = { ...cfg }
-  if (skipWatch || loadError.value) return
-  if (savedConfig && configsEqual(cfg, savedConfig)) return
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(async () => {
-    const res = await apiPost<SettingsConfig>('config', cfg)
-    saveError.value = !(res?.ok ?? false)
-    if (res?.ok && res.data) {
-      savedConfig = { ...res.data }
-      appStore.settingsConfig = { ...res.data }
-      appStore.savedSettingsConfig = { ...res.data }
-    }
-  }, 400)
-}, { deep: true })
+watch(
+  config,
+  () => {
+    configStore.triggerAutoSave(
+      () => {
+        message.success('设置已自动保存')
+      },
+      (errMsg) => {
+        message.error(errMsg || '保存失败')
+      }
+    )
+  },
+  { deep: true }
+)
 </script>

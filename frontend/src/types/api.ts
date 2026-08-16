@@ -1,0 +1,127 @@
+/**
+ * 统一 API 响应包装契约
+ */
+export interface ApiResponse<T = unknown> {
+  code: number
+  message: string
+  data: T
+  timestamp?: number
+}
+
+/**
+ * 统一网络请求返回结果
+ */
+export type RequestResult<T> =
+  | { success: true; data: T; message: string; timestamp?: number }
+  | { success: false; message: string; code?: number }
+
+/**
+ * 系统运行状态模型
+ */
+export interface StatusData {
+  name: string
+  version: string
+  commit: string
+  status: 'stopped' | 'running' | 'building' | string
+  uptime: string
+  started_at: number
+  server_port?: number
+  server_time?: number
+  build_time: string
+  app_url: string
+  last_message: string
+}
+
+/**
+ * 工作区项模型
+ */
+export interface WorkspaceItem {
+  workspaceId: string
+  path: string
+  title: string
+  sessionIds: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * 工作区数据集合模型
+ */
+export interface WorkspaceData {
+  items: WorkspaceItem[]
+  archivedSessionIds: string[]
+}
+
+/**
+ * 已安装插件模型
+ */
+export interface PluginItem {
+  name: string
+  spec?: string
+  version?: string
+  layer: boolean
+}
+
+/**
+ * 插件列表响应模型
+ */
+export interface PluginListPayload {
+  profile: string
+  plugins: PluginItem[]
+  builtin: string[]
+  bundles: string[]
+}
+
+/**
+ * 插件操作状态模型
+ */
+export interface PluginStatus {
+  running: boolean
+  ok?: boolean
+  message?: string
+}
+
+/**
+ * 插件命令解析预览模型
+ */
+export interface PreviewResult {
+  valid: boolean
+  ok?: boolean
+  command?: string
+  reason?: string
+  verb?: string
+  profile?: string
+  specs?: string[]
+}
+
+/**
+ * 日志数据模型
+ */
+export interface LogData {
+  lines: string[]
+  content: string
+}
+
+/**
+ * 应用设置配置模型
+ */
+export interface SettingsConfig {
+  server_port: number
+  proxy_port: number
+  network_proxy: string
+  reverse_proxy_url: string
+  access_password: string
+  data_library_path?: string
+  version?: string
+  commit?: string
+  build_time?: string
+}
+
+/**
+ * WebSocket 信封消息结构
+ */
+export interface WSEnvelope<T = unknown> {
+  type: 'status' | 'workspace' | 'plugin' | 'log' | 'pong' | string
+  data: T
+  timestamp?: number
+}

@@ -210,7 +210,7 @@ func StartWorkspaceWatch() {
 			if err := fetchWorkspaces(); err != nil {
 				// 持续错误只记录一次，避免每秒刷屏
 				if msg := err.Error(); msg != lastErr {
-					LogWarning("读取工作区数据失败: %s", msg)
+					LogWarning("工作区数据同步失败: %s", msg)
 					lastErr = msg
 				}
 				continue

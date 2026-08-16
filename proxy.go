@@ -146,7 +146,7 @@ func updateReverseProxyTarget() {
 
 	port := cfg.ServerPort
 	if port <= 0 {
-		port = 3080
+		port = 2298
 	}
 	proxyTarget, _ = url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 
@@ -157,43 +157,9 @@ func updateReverseProxyTarget() {
 	proxyAddr = fmt.Sprintf("0.0.0.0:%d", proxyPort)
 }
 
-func listAllIPs() []net.IP {
-	var ips []net.IP
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return ips
-	}
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-			if ip == nil {
-				continue
-			}
-			if ip.To4() != nil || ip.To16() != nil {
-				ips = append(ips, ip)
-			}
-		}
-	}
-	ips = append(ips, net.ParseIP("127.0.0.1"), net.ParseIP("::1"))
-	return ips
-}
-
 func listAllDNSNames() []string {
-	names := []string{"localhost"}
-	if hostname, err := os.Hostname(); err == nil && hostname != "" {
+	names := []string{"localhost", "deepseek-harness"}
+	if hostname, err := os.Hostname(); err == nil && hostname != "" && hostname != "localhost" {
 		names = append(names, hostname)
 	}
 	return names
@@ -223,7 +189,7 @@ func generateSelfSignedCert(certPath, keyPath string) error {
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		DNSNames:              listAllDNSNames(),
-		IPAddresses:           listAllIPs(),
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
 	}
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
@@ -253,7 +219,7 @@ func generateSelfSignedCert(certPath, keyPath string) error {
 		return fmt.Errorf("PEM 编码私钥失败: %s", err)
 	}
 
-	LogInfo("自签名证书已生成: %s (共 %d 个 IP, %d 个域名)", certPath, len(template.IPAddresses), len(template.DNSNames))
+	LogInfo("TLS 自签名证书已就绪: %s", certPath)
 	return nil
 }
 
@@ -273,7 +239,6 @@ func loadOrCreateProxyTLS() (*tls.Config, error) {
 	}
 
 	if needRegen {
-		LogInfo("生成自签名证书...")
 		if err := generateSelfSignedCert(certFile, keyFile); err != nil {
 			return nil, fmt.Errorf("生成自签名证书失败: %s", err)
 		}
@@ -305,7 +270,7 @@ func startReverseProxyLocked() error {
 
 	tlsCfg, err := loadOrCreateProxyTLS()
 	if err != nil {
-		LogWarning("TLS 初始化失败，反向代理未启动: %s", err)
+		LogWarning("TLS 证书加载失败，反向代理未启动: %s", err)
 		return err
 	}
 	proxyTLS = tlsCfg
@@ -323,7 +288,7 @@ func startReverseProxyLocked() error {
 		req.Header.Del("Sec-Fetch-Dest")
 	}
 	errHandler := func(w http.ResponseWriter, r *http.Request, err error) {
-		LogWarning("反向代理 %s 错误: %s", proxyAddr, err)
+		LogWarning("反向代理转发错误 [%s]: %s", proxyAddr, err)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusBadGateway)
 		_ = json.NewEncoder(w).Encode(map[string]string{
@@ -337,7 +302,7 @@ func startReverseProxyLocked() error {
 	// 建立 TCP 监听器
 	ln, err := net.Listen("tcp", proxyAddr)
 	if err != nil {
-		LogWarning("监听 %s 失败: %s", proxyAddr, err)
+		LogWarning("反向代理端口监听失败 [%s]: %s", proxyAddr, err)
 		return err
 	}
 
@@ -350,21 +315,21 @@ func startReverseProxyLocked() error {
 	proxyHTTPS = &http.Server{Handler: proxyWithAuth(proxy), TLSConfig: tlsCfg}
 	proxyHTTP = &http.Server{Handler: proxyWithAuth(proxy)}
 
-	LogInfo("反向代理启动(HTTP+HTTPS): %s → %s", proxyAddr, proxyTarget.String())
+	LogInfo("反向代理服务已就绪 [%s → %s]", proxyAddr, proxyTarget.String())
 
 	go func() {
 		if err := proxyHTTPS.ServeTLS(tlsL, "", ""); err != nil && err != http.ErrServerClosed {
-			LogWarning("HTTPS 反向代理退出: %s", err)
+			LogWarning("HTTPS 代理服务异常退出: %s", err)
 		}
 	}()
 	go func() {
 		if err := proxyHTTP.Serve(httpL); err != nil && err != http.ErrServerClosed {
-			LogWarning("HTTP 反向代理退出: %s", err)
+			LogWarning("HTTP 代理服务异常退出: %s", err)
 		}
 	}()
 	go func() {
 		if err := mx.Serve(); err != nil && err != net.ErrClosed {
-			LogWarning("cmux 退出: %s", err)
+			LogWarning("cmux 协议多路复用器退出: %s", err)
 		}
 	}()
 
@@ -395,7 +360,7 @@ func stopReverseProxyLocked() {
 		proxyCmux.Close()
 		proxyCmux = nil
 	}
-	LogInfo("反向代理已停止")
+	LogInfo("反向代理服务已停止")
 }
 
 // proxyErrMessage 根据当前服务状态给出准确的代理错误提示
@@ -417,8 +382,8 @@ func restartReverseProxy() {
 	proxyMu.Lock()
 	defer proxyMu.Unlock()
 	stopReverseProxyLocked()
-	LogInfo("反向代理配置变更，按新配置重启")
+	LogInfo("反向代理配置已变更，执行热重载")
 	if err := startReverseProxyLocked(); err != nil {
-		LogWarning("反向代理重启失败: %s", err)
+		LogWarning("反向代理热重载失败: %s", err)
 	}
 }
