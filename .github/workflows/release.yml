@@ -36,6 +36,12 @@ jobs:
           echo "$UPSTREAM_VER" > /tmp/version.txt
           echo "Upstream deepseek-harness version: $UPSTREAM_VER"
           
+          # 打包纯源码包（不含 node_modules 与编译产物）
+          cd /tmp/upstream
+          tar -czf /tmp/deepseek-harness-source.tar.gz deepseek-harness
+          
+          # 执行完整预构建并打包预构建包
+          cd /tmp/upstream/deepseek-harness
           pnpm install --no-frozen-lockfile
           pnpm run build
           pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
@@ -49,6 +55,7 @@ jobs:
           name: harness-amd64
           path: |
             /tmp/deepseek-harness-amd64.tar.gz
+            /tmp/deepseek-harness-source.tar.gz
             /tmp/version.txt
 
   build-harness-arm64:
@@ -107,7 +114,7 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Download amd64 Artifact
+      - name: Download amd64 and Source Artifacts
         uses: actions/download-artifact@v4
         with:
           name: harness-amd64
@@ -119,48 +126,82 @@ jobs:
           name: harness-arm64
           path: /tmp/arm64-dist
 
-      - name: Setup Version and Packages
-        run: |
-          cp /tmp/amd64-dist/version.txt fnpack/app/.version
-          cp /tmp/amd64-dist/deepseek-harness-amd64.tar.gz fnpack/app/deepseek-harness.tar.gz
-          echo "Package version: $(cat fnpack/app/.version)"
-
       - name: Build Frontend
         run: |
           cd frontend
           npm ci
           npm run build
 
-      - name: Build x86 fpk
+      - name: Build x86 Prebuilt fpk
         run: |
-          mkdir -p fnpack/app/bin
-          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o fnpack/app/bin/${{ env.BIN_NAME }} .
-          cd fnpack
+          mkdir -p fnpack_x86_prebuilt/app/bin
+          cp -r fnpack/* fnpack_x86_prebuilt/
+          echo "prebuilt" > fnpack_x86_prebuilt/app/.pkg_type
+          cp /tmp/amd64-dist/version.txt fnpack_x86_prebuilt/app/.version
+          cp /tmp/amd64-dist/deepseek-harness-amd64.tar.gz fnpack_x86_prebuilt/app/deepseek-harness.tar.gz
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o fnpack_x86_prebuilt/app/bin/${{ env.BIN_NAME }} .
+          cd fnpack_x86_prebuilt
           chmod +x ${{ env.FNPACK_BIN }}
           ./${{ env.FNPACK_BIN }} build
           cd ..
-          mv fnpack/${{ env.BIN_NAME }}.fpk ./${{ env.BIN_NAME }}-x86.fpk
+          mv fnpack_x86_prebuilt/${{ env.BIN_NAME }}.fpk ./${{ env.BIN_NAME }}-x86-prebuilt.fpk
+          rm -rf fnpack_x86_prebuilt
 
-      - name: Build arm fpk
+      - name: Build arm Prebuilt fpk
         run: |
-          mkdir -p fnpack_arm/app/bin
-          cp -r fnpack/* fnpack_arm/
-          cp /tmp/arm64-dist/deepseek-harness-arm64.tar.gz fnpack_arm/app/deepseek-harness.tar.gz
-          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o fnpack_arm/app/bin/${{ env.BIN_NAME }} .
-          sed -i 's/platform[[:space:]]*=[[:space:]]*x86/platform              = arm/g' fnpack_arm/manifest
-          cd fnpack_arm
+          mkdir -p fnpack_arm_prebuilt/app/bin
+          cp -r fnpack/* fnpack_arm_prebuilt/
+          echo "prebuilt" > fnpack_arm_prebuilt/app/.pkg_type
+          cp /tmp/amd64-dist/version.txt fnpack_arm_prebuilt/app/.version
+          cp /tmp/arm64-dist/deepseek-harness-arm64.tar.gz fnpack_arm_prebuilt/app/deepseek-harness.tar.gz
+          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o fnpack_arm_prebuilt/app/bin/${{ env.BIN_NAME }} .
+          sed -i 's/platform[[:space:]]*=[[:space:]]*x86/platform              = arm/g' fnpack_arm_prebuilt/manifest
+          cd fnpack_arm_prebuilt
           chmod +x ${{ env.FNPACK_BIN }}
           ./${{ env.FNPACK_BIN }} build
           cd ..
-          mv fnpack_arm/${{ env.BIN_NAME }}.fpk ./${{ env.BIN_NAME }}-arm.fpk
-          rm -rf fnpack_arm
+          mv fnpack_arm_prebuilt/${{ env.BIN_NAME }}.fpk ./${{ env.BIN_NAME }}-arm-prebuilt.fpk
+          rm -rf fnpack_arm_prebuilt
+
+      - name: Build x86 Source fpk
+        run: |
+          mkdir -p fnpack_x86_source/app/bin
+          cp -r fnpack/* fnpack_x86_source/
+          echo "source" > fnpack_x86_source/app/.pkg_type
+          cp /tmp/amd64-dist/version.txt fnpack_x86_source/app/.version
+          cp /tmp/amd64-dist/deepseek-harness-source.tar.gz fnpack_x86_source/app/deepseek-harness.tar.gz
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o fnpack_x86_source/app/bin/${{ env.BIN_NAME }} .
+          cd fnpack_x86_source
+          chmod +x ${{ env.FNPACK_BIN }}
+          ./${{ env.FNPACK_BIN }} build
+          cd ..
+          mv fnpack_x86_source/${{ env.BIN_NAME }}.fpk ./${{ env.BIN_NAME }}-x86.fpk
+          rm -rf fnpack_x86_source
+
+      - name: Build arm Source fpk
+        run: |
+          mkdir -p fnpack_arm_source/app/bin
+          cp -r fnpack/* fnpack_arm_source/
+          echo "source" > fnpack_arm_source/app/.pkg_type
+          cp /tmp/amd64-dist/version.txt fnpack_arm_source/app/.version
+          cp /tmp/amd64-dist/deepseek-harness-source.tar.gz fnpack_arm_source/app/deepseek-harness.tar.gz
+          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o fnpack_arm_source/app/bin/${{ env.BIN_NAME }} .
+          sed -i 's/platform[[:space:]]*=[[:space:]]*x86/platform              = arm/g' fnpack_arm_source/manifest
+          cd fnpack_arm_source
+          chmod +x ${{ env.FNPACK_BIN }}
+          ./${{ env.FNPACK_BIN }} build
+          cd ..
+          mv fnpack_arm_source/${{ env.BIN_NAME }}.fpk ./${{ env.BIN_NAME }}-arm.fpk
+          rm -rf fnpack_arm_source
 
       - name: Extract Manifest Version
         id: manifest
         run: |
           APP_VER=$(grep -E '^[[:space:]]*version[[:space:]]*=' fnpack/manifest | awk -F'=' '{gsub(/[ \t]/,"",$2); print $2}')
+          UPSTREAM_VER=$(cat /tmp/amd64-dist/version.txt 2>/dev/null || echo "latest")
           echo "version=$APP_VER" >> $GITHUB_OUTPUT
-          echo "Release version: $APP_VER"
+          echo "upstream_ver=$UPSTREAM_VER" >> $GITHUB_OUTPUT
+          echo "Release version: $APP_VER, Upstream version: $UPSTREAM_VER"
 
       - name: Delete Existing Release and Tag (if exists)
         env:
@@ -180,10 +221,25 @@ jobs:
         with:
           tag_name: "v${{ steps.manifest.outputs.version }}"
           name: "Release v${{ steps.manifest.outputs.version }}"
+          body: |
+            ### 安装包版本说明
+
+            | 文件名 | 架构 | 类型 | 说明 |
+            | :--- | :---: | :---: | :--- |
+            | `deepseek.harness-x86-prebuilt.fpk` | x86_64 | 预构建版 | 内置前端产物、后端编译文件及运行时依赖，安装后直接启动服务。 |
+            | `deepseek.harness-arm-prebuilt.fpk` | ARM64 | 预构建版 | 内置前端产物、后端编译文件及运行时依赖，安装后直接启动服务。 |
+            | `deepseek.harness-x86.fpk` | x86_64 | 源码版 | 仅包含项目源码，首次安装启动时在本地自动下载依赖并执行构建。 |
+            | `deepseek.harness-arm.fpk` | ARM64 | 源码版 | 仅包含项目源码，首次安装启动时在本地自动下载依赖并执行构建。 |
+
+            ---
+            - 应用版本：`v${{ steps.manifest.outputs.version }}`
+            - 上游源码版本：`${{ steps.manifest.outputs.upstream_ver }}`
           generate_release_notes: true
           draft: false
           prerelease: false
           make_latest: true
           files: |
+            ${{ env.BIN_NAME }}-x86-prebuilt.fpk
+            ${{ env.BIN_NAME }}-arm-prebuilt.fpk
             ${{ env.BIN_NAME }}-x86.fpk
             ${{ env.BIN_NAME }}-arm.fpk

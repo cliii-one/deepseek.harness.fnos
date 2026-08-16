@@ -246,8 +246,12 @@ func buildSource(allowFastStart bool) error {
 
 	// 仅在允许快速启动（初次安装/解压内置离线预构建源码包）且产物与依赖齐全时跳过编译
 	if allowFastStart && hasModules && prebuilt {
-		LogInfo("检测到已内置运行时依赖与预构建产物，跳过依赖拉取与项目编译，极速启动")
+		state.SetStatus(StatusBuilding, "检测到预构建产物，正在极速启动...")
+		LogInfo("检测到内置离线预构建源码包（产物与依赖完备），跳过依赖拉取与项目编译，极速启动")
 	} else {
+		if allowFastStart && (!prebuilt || !hasModules) {
+			LogInfo("检测到内置离线源码包，开始自动配置编译环境并安装依赖")
+		}
 		if err := ensureGCC(); err != nil {
 			return err
 		}
@@ -259,6 +263,7 @@ func buildSource(allowFastStart bool) error {
 		if err := runCmd(srcDir, pnpmBin(), "run", "build"); err != nil {
 			return fmt.Errorf("pnpm run build: %w", err)
 		}
+		LogInfo("项目源码编译完成")
 	}
 
 	if err := buildLandlock(); err != nil {
@@ -357,6 +362,21 @@ func readAppDestVersion() string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+func isPrebuiltPkg() bool {
+	data, err := os.ReadFile(filepath.Join(appDest, ".pkg_type"))
+	if err == nil && strings.TrimSpace(string(data)) == "prebuilt" {
+		return true
+	}
+	return false
+}
+
+func pkgTypeName() string {
+	if isPrebuiltPkg() {
+		return "内置离线预构建源码包"
+	}
+	return "内置离线源码包"
 }
 
 // compareSemver 比较语义化版本（如 "0.1.0-rc.5", "0.1.0"）

@@ -120,10 +120,11 @@ func InitHarness(pkgVar, appdest string) {
 		state.SetStatus(StatusBuilding, "正在准备初始化...")
 		go func() {
 			if _, err := os.Stat(tarPath); err == nil {
-				state.SetStatus(StatusBuilding, "正在解压内置离线预构建源码包...")
-				LogInfo("解压内置离线预构建源码包: %s (版本: %s)", tarPath, zipVer)
+				pkgName := pkgTypeName()
+				state.SetStatus(StatusBuilding, fmt.Sprintf("正在解压%s...", pkgName))
+				LogInfo("解压%s: %s (版本: %s)", pkgName, tarPath, zipVer)
 				if err := extractTarGz(tarPath, filepath.Dir(srcDir)); err != nil {
-					LogWarning("解压内置离线预构建源码包失败: %s", err)
+					LogWarning("解压%s失败: %s", pkgName, err)
 					state.SetStatus(StatusStopped, "解压失败，请点击【更新构建】重试")
 					return
 				}
@@ -153,16 +154,17 @@ func InitHarness(pkgVar, appdest string) {
 		return
 	}
 
-	// 2. 若 srcDir 已存在：检查内置离线预构建源码包版本是否高于当前版本
+	// 2. 若 srcDir 已存在：检查内置源码包版本是否高于当前版本
 	if _, err := os.Stat(tarPath); err == nil {
 		installedVer := readVersion()
 		if zipVer != "" && compareSemver(zipVer, installedVer) > 0 {
-			state.SetStatus(StatusBuilding, "检测到新版本内置离线预构建源码包，正在准备更新...")
+			pkgName := pkgTypeName()
+			state.SetStatus(StatusBuilding, fmt.Sprintf("检测到新版本%s，正在准备更新...", pkgName))
 			go func() {
-				state.SetStatus(StatusBuilding, fmt.Sprintf("正在增量替换内置离线预构建源码包 (%s → %s)...", installedVer, zipVer))
-				LogInfo("检测到内置离线预构建源码包版本更新 (%s → %s)，开始增量解压替换", installedVer, zipVer)
+				state.SetStatus(StatusBuilding, fmt.Sprintf("正在增量替换%s (%s → %s)...", pkgName, installedVer, zipVer))
+				LogInfo("检测到%s版本更新 (%s → %s)，开始增量解压替换", pkgName, installedVer, zipVer)
 				if err := extractTarGz(tarPath, filepath.Dir(srcDir)); err != nil {
-					LogWarning("增量解压替换内置离线预构建源码包失败: %s", err)
+					LogWarning("增量解压替换%s失败: %s", pkgName, err)
 					state.SetStatus(StatusStopped, "解压更新失败，请点击【强制重建】重试")
 					return
 				}
@@ -184,11 +186,17 @@ func InitHarness(pkgVar, appdest string) {
 		}
 
 		// 压缩包版本不高于已安装版本，直接清理
+		pkgName := pkgTypeName()
 		_ = os.Remove(tarPath)
-		LogInfo("内置离线预构建源码包版本 (%s) 不高于当前版本 (%s)，清理并跳过解压", zipVer, installedVer)
+		LogInfo("%s版本 (%s) 不高于当前版本 (%s)，清理并跳过解压", pkgName, zipVer, installedVer)
 	}
 
 	refreshCommit()
+	go func() {
+		if err := Start(); err != nil {
+			LogWarning("服务启动失败: %s", err)
+		}
+	}()
 }
 
 func Start() error {
