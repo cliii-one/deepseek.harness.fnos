@@ -1,9 +1,6 @@
 name: Build and Release
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -14,17 +11,96 @@ env:
   BIN_NAME: deepseek.harness
 
 jobs:
-  build-and-release:
+  build-harness-amd64:
+    name: Prebuild Harness (amd64)
     runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Fetch and Prebuild Upstream Harness (amd64)
+        run: |
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          mkdir -p /tmp/upstream
+          git clone --depth=1 https://github.com/deepseek-ai/deepseek-harness.git /tmp/upstream/deepseek-harness
+          cd /tmp/upstream/deepseek-harness
+          
+          UPSTREAM_VER=$(node -p "require('./package.json').version")
+          echo "$UPSTREAM_VER" > /tmp/version.txt
+          echo "Upstream deepseek-harness version: $UPSTREAM_VER"
+          
+          pnpm install --frozen-lockfile
+          pnpm run build
+          pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
+          pnpm prune --prod
+          
+          cd /tmp/upstream
+          tar -czf /tmp/deepseek-harness-amd64.tar.gz deepseek-harness
+
+      - name: Upload amd64 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-amd64
+          path: |
+            /tmp/deepseek-harness-amd64.tar.gz
+            /tmp/version.txt
+
+  build-harness-arm64:
+    name: Prebuild Harness (arm64)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Fetch and Prebuild Upstream Harness (arm64)
+        run: |
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          mkdir -p /tmp/upstream
+          git clone --depth=1 https://github.com/deepseek-ai/deepseek-harness.git /tmp/upstream/deepseek-harness
+          cd /tmp/upstream/deepseek-harness
+          
+          pnpm install --frozen-lockfile
+          pnpm run build
+          pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
+          pnpm prune --prod
+          
+          cd /tmp/upstream
+          tar -czf /tmp/deepseek-harness-arm64.tar.gz deepseek-harness
+
+      - name: Upload arm64 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-arm64
+          path: /tmp/deepseek-harness-arm64.tar.gz
+
+  build-and-release:
+    name: Package and Release
+    needs: [build-harness-amd64, build-harness-arm64]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: 'frontend/package-lock.json'
 
@@ -32,6 +108,24 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.23'
+
+      - name: Download amd64 Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: harness-amd64
+          path: /tmp/amd64-dist
+
+      - name: Download arm64 Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: harness-arm64
+          path: /tmp/arm64-dist
+
+      - name: Setup Version and Packages
+        run: |
+          cp /tmp/amd64-dist/version.txt fnpack/app/.version
+          cp /tmp/amd64-dist/deepseek-harness-amd64.tar.gz fnpack/app/deepseek-harness.tar.gz
+          echo "Package version: $(cat fnpack/app/.version)"
 
       - name: Build Frontend
         run: |
@@ -53,6 +147,7 @@ jobs:
         run: |
           mkdir -p fnpack_arm/app/bin
           cp -r fnpack/* fnpack_arm/
+          cp /tmp/arm64-dist/deepseek-harness-arm64.tar.gz fnpack_arm/app/deepseek-harness.tar.gz
           GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o fnpack_arm/app/bin/${{ env.BIN_NAME }} .
           sed -i 's/platform[[:space:]]*=[[:space:]]*x86/platform              = arm/g' fnpack_arm/manifest
           cd fnpack_arm
@@ -62,13 +157,35 @@ jobs:
           mv fnpack_arm/${{ env.BIN_NAME }}.fpk ./${{ env.BIN_NAME }}-arm.fpk
           rm -rf fnpack_arm
 
-      - name: Upload Pre-release Asset
-        uses: marvinpinto/action-automatic-releases@latest
+      - name: Extract Manifest Version
+        id: manifest
+        run: |
+          APP_VER=$(grep -E '^[[:space:]]*version[[:space:]]*=' fnpack/manifest | awk -F'=' '{gsub(/[ \t]/,"",$2); print $2}')
+          echo "version=$APP_VER" >> $GITHUB_OUTPUT
+          echo "Release version: $APP_VER"
+
+      - name: Delete Existing Release and Tag (if exists)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="v${{ steps.manifest.outputs.version }}"
+          echo "Checking if release $TAG_NAME already exists..."
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Deleting existing release $TAG_NAME..."
+            gh release delete "$TAG_NAME" --yes --cleanup-tag || true
+          fi
+          git push --delete origin "$TAG_NAME" 2>/dev/null || true
+          git tag -d "$TAG_NAME" 2>/dev/null || true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "pre-release"
-          prerelease: true
-          title: "Latest Pre-release Build"
+          tag_name: "v${{ steps.manifest.outputs.version }}"
+          name: "Release v${{ steps.manifest.outputs.version }}"
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          make_latest: true
           files: |
             ${{ env.BIN_NAME }}-x86.fpk
             ${{ env.BIN_NAME }}-arm.fpk

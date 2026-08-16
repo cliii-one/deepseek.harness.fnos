@@ -1,6 +1,9 @@
-fnpack/deepseek.harness.fpk
-fnpack/app/bin/deepseek.harness
 node_modules
 frontend/dist
 test
 .agents
+*.fpk
+fnpack/*.fpk
+fnpack/app/bin/deepseek.harness
+fnpack/app/*.tar.gz
+fnpack/app/*.zip

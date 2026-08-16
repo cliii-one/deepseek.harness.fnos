@@ -1,14 +1,13 @@
 package main
 
 import (
-	"archive/zip"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -46,7 +45,7 @@ func update(forceRebuild bool) {
 			state.SetStatus(StatusStopped, "克隆失败: "+err.Error())
 			return
 		}
-		if err := buildSource(); err != nil {
+		if err := buildSource(false); err != nil {
 			LogWarning("源码构建失败: %s", err)
 			state.SetStatus(StatusStopped, "构建失败: "+err.Error())
 			return
@@ -76,7 +75,7 @@ func update(forceRebuild bool) {
 		LogInfo("检测到版本变更 (%s → %s)，开始构建", commitBefore, commitAfter)
 	}
 
-	if err := buildSource(); err != nil {
+	if err := buildSource(false); err != nil {
 		LogWarning("源码构建失败: %s", err)
 		state.SetStatus(StatusStopped, "构建失败: "+err.Error())
 		return
@@ -119,44 +118,17 @@ func gitHead() string {
 	return strings.TrimSpace(string(out))
 }
 
-func extractZip(zipPath, dst string) error {
-	r, err := zip.OpenReader(zipPath)
-	if err != nil {
+func extractTarGz(tarPath, dst string) error {
+	if err := os.MkdirAll(dst, 0755); err != nil {
 		return err
 	}
-	defer r.Close()
-
-	_ = os.MkdirAll(dst, 0755)
-	for _, f := range r.File {
-		if f.Name == "" {
-			continue
-		}
-		target := filepath.Join(dst, f.Name)
-		if f.FileInfo().IsDir() {
-			_ = os.MkdirAll(target, 0755)
-			continue
-		}
-		_ = os.MkdirAll(filepath.Dir(target), 0755)
-		if err := extractZipFile(f, target); err != nil {
-			return err
-		}
+	cmd := exec.Command("tar", "-xzf", tarPath, "-C", dst)
+	cmd.Stdout = NewLogWriterInfo()
+	cmd.Stderr = NewLogWriterWarn()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("解压 tar.gz 失败: %w", err)
 	}
 	return nil
-}
-
-func extractZipFile(f *zip.File, dst string) error {
-	rc, err := f.Open()
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, rc)
-	return err
 }
 
 func installPnpm() error {
@@ -245,22 +217,59 @@ func buildLandlock() error {
 	return nil
 }
 
-func buildSource() error {
+func hasPrebuiltArtifacts() bool {
+	// 检查主项目或 packages 各子模块中是否存在 dist 编译产物
+	if entries, err := os.ReadDir(srcDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() && (e.Name() == "dist" || e.Name() == "build") {
+				return true
+			}
+		}
+	}
+	pkgDir := filepath.Join(srcDir, "packages")
+	if pkgs, err := os.ReadDir(pkgDir); err == nil {
+		for _, p := range pkgs {
+			if p.IsDir() {
+				if _, err := os.Stat(filepath.Join(pkgDir, p.Name(), "dist")); err == nil {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func hasNodeModules() bool {
+	info, err := os.Stat(filepath.Join(srcDir, "node_modules"))
+	return err == nil && info.IsDir()
+}
+
+func buildSource(allowFastStart bool) error {
 	state.SetStatus(StatusBuilding, "正在安装 pnpm...")
 	if err := installPnpm(); err != nil {
 		return fmt.Errorf("install pnpm: %w", err)
 	}
-	if err := ensureGCC(); err != nil {
-		return err
+
+	prebuilt := hasPrebuiltArtifacts()
+	hasModules := hasNodeModules()
+
+	// 仅在允许快速启动（初次安装/解压内置离线包）且产物与依赖齐全时跳过编译
+	if allowFastStart && hasModules && prebuilt {
+		LogInfo("检测到已内置运行时依赖与预构建产物，跳过依赖拉取与项目编译，极速启动")
+	} else {
+		if err := ensureGCC(); err != nil {
+			return err
+		}
+		state.SetStatus(StatusBuilding, "正在安装依赖...")
+		if err := runCmd(srcDir, pnpmBin(), "install", "--registry", "https://registry.npmmirror.com"); err != nil {
+			return fmt.Errorf("pnpm install: %w", err)
+		}
+		state.SetStatus(StatusBuilding, "正在编译构建...")
+		if err := runCmd(srcDir, pnpmBin(), "run", "build"); err != nil {
+			return fmt.Errorf("pnpm run build: %w", err)
+		}
 	}
-	state.SetStatus(StatusBuilding, "正在安装依赖...")
-	if err := runCmd(srcDir, pnpmBin(), "install", "--frozen-lockfile", "--registry", "https://registry.npmmirror.com"); err != nil {
-		return fmt.Errorf("pnpm install: %w", err)
-	}
-	state.SetStatus(StatusBuilding, "正在编译构建...")
-	if err := runCmd(srcDir, pnpmBin(), "run", "build"); err != nil {
-		return fmt.Errorf("pnpm run build: %w", err)
-	}
+
 	if err := buildLandlock(); err != nil {
 		return err
 	}
@@ -349,3 +358,132 @@ func readVersion() string {
 	}
 	return pkg.Version
 }
+
+func readAppDestVersion() string {
+	data, err := os.ReadFile(filepath.Join(appDest, ".version"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// compareSemver 比较语义化版本（如 "0.1.0-rc.5", "0.1.0"）
+// 返回: 1 表示 v1 > v2, -1 表示 v1 < v2, 0 表示 v1 == v2
+func compareSemver(v1, v2 string) int {
+	v1 = strings.TrimPrefix(strings.TrimSpace(v1), "v")
+	v2 = strings.TrimPrefix(strings.TrimSpace(v2), "v")
+
+	if v1 == v2 {
+		return 0
+	}
+	if v1 == "" {
+		return -1
+	}
+	if v2 == "" {
+		return 1
+	}
+
+	core1, pre1 := splitPrerelease(v1)
+	core2, pre2 := splitPrerelease(v2)
+
+	nums1 := parseVersionNumbers(core1)
+	nums2 := parseVersionNumbers(core2)
+
+	maxLen := len(nums1)
+	if len(nums2) > maxLen {
+		maxLen = len(nums2)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		n1 := 0
+		if i < len(nums1) {
+			n1 = nums1[i]
+		}
+		n2 := 0
+		if i < len(nums2) {
+			n2 = nums2[i]
+		}
+		if n1 > n2 {
+			return 1
+		}
+		if n1 < n2 {
+			return -1
+		}
+	}
+
+	// core 版本号相同，比较预发布版本 (semver 规则: 无 prerelease 大于 有 prerelease)
+	if pre1 == "" && pre2 != "" {
+		return 1
+	}
+	if pre1 != "" && pre2 == "" {
+		return -1
+	}
+	if pre1 != "" && pre2 != "" {
+		return comparePrerelease(pre1, pre2)
+	}
+
+	return 0
+}
+
+func splitPrerelease(v string) (core, pre string) {
+	if idx := strings.Index(v, "-"); idx != -1 {
+		return v[:idx], v[idx+1:]
+	}
+	return v, ""
+}
+
+func parseVersionNumbers(core string) []int {
+	parts := strings.Split(core, ".")
+	nums := make([]int, 0, len(parts))
+	for _, p := range parts {
+		var n int
+		for _, r := range p {
+			if r >= '0' && r <= '9' {
+				n = n*10 + int(r-'0')
+			} else {
+				break
+			}
+		}
+		nums = append(nums, n)
+	}
+	return nums
+}
+
+func comparePrerelease(p1, p2 string) int {
+	parts1 := strings.Split(p1, ".")
+	parts2 := strings.Split(p2, ".")
+	maxLen := len(parts1)
+	if len(parts2) > maxLen {
+		maxLen = len(parts2)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		if i >= len(parts1) {
+			return -1
+		}
+		if i >= len(parts2) {
+			return 1
+		}
+		seg1, seg2 := parts1[i], parts2[i]
+		if seg1 == seg2 {
+			continue
+		}
+		num1, err1 := strconv.Atoi(seg1)
+		num2, err2 := strconv.Atoi(seg2)
+		if err1 == nil && err2 == nil {
+			if num1 > num2 {
+				return 1
+			}
+			if num1 < num2 {
+				return -1
+			}
+			continue
+		}
+		if seg1 > seg2 {
+			return 1
+		}
+		return -1
+	}
+	return 0
+}
+

@@ -112,19 +112,22 @@ func InitHarness(pkgVar, appdest string) {
 	KillHarness()
 	StartWatchdog()
 
+	tarPath := filepath.Join(appDest, "deepseek-harness.tar.gz")
+	zipVer := readAppDestVersion()
+
+	// 1. 若 srcDir 不存在：初次安装解压/克隆
 	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
 		state.SetStatus(StatusBuilding, "正在准备初始化...")
 		go func() {
-			zipPath := filepath.Join(appDest, "deepseek-harness.zip")
-			if _, err := os.Stat(zipPath); err == nil {
-				state.SetStatus(StatusBuilding, "正在解压源码包...")
-				LogInfo("解压源码包: %s", zipPath)
-				if err := extractZip(zipPath, filepath.Dir(srcDir)); err != nil {
-					LogWarning("解压源码包失败: %s", err)
+			if _, err := os.Stat(tarPath); err == nil {
+				state.SetStatus(StatusBuilding, "正在解压内置离线源码包...")
+				LogInfo("解压内置离线源码包: %s (版本: %s)", tarPath, zipVer)
+				if err := extractTarGz(tarPath, filepath.Dir(srcDir)); err != nil {
+					LogWarning("解压内置离线源码包失败: %s", err)
 					state.SetStatus(StatusStopped, "解压失败，请点击【更新构建】重试")
 					return
 				}
-				_ = os.Remove(zipPath)
+				_ = os.Remove(tarPath)
 			} else {
 				state.SetStatus(StatusBuilding, "正在克隆源码...")
 				LogInfo("Git 克隆源码: %s", repoURL)
@@ -135,7 +138,7 @@ func InitHarness(pkgVar, appdest string) {
 				}
 			}
 
-			if err := buildSource(); err != nil {
+			if err := buildSource(true); err != nil {
 				LogWarning("源码构建失败: %s", err)
 				state.SetStatus(StatusStopped, "构建失败，请点击【更新构建】重试")
 				return
@@ -150,13 +153,42 @@ func InitHarness(pkgVar, appdest string) {
 		return
 	}
 
-	refreshCommit()
+	// 2. 若 srcDir 已存在：检查内置离线源码包版本是否高于当前版本
+	if _, err := os.Stat(tarPath); err == nil {
+		installedVer := readVersion()
+		if zipVer != "" && compareSemver(zipVer, installedVer) > 0 {
+			state.SetStatus(StatusBuilding, "检测到新版本内置离线源码包，正在准备更新...")
+			go func() {
+				state.SetStatus(StatusBuilding, fmt.Sprintf("正在增量替换内置离线源码包 (%s → %s)...", installedVer, zipVer))
+				LogInfo("检测到内置离线源码包版本更新 (%s → %s)，开始增量解压替换", installedVer, zipVer)
+				if err := extractTarGz(tarPath, filepath.Dir(srcDir)); err != nil {
+					LogWarning("增量解压替换内置离线源码包失败: %s", err)
+					state.SetStatus(StatusStopped, "解压更新失败，请点击【强制重建】重试")
+					return
+				}
+				_ = os.Remove(tarPath)
 
-	zipPath := filepath.Join(appDest, "deepseek-harness.zip")
-	if _, err := os.Stat(zipPath); err == nil {
-		_ = os.Remove(zipPath)
-		LogInfo("清理离线源码包: %s", zipPath)
+				if err := buildSource(true); err != nil {
+					LogWarning("增量更新后源码构建失败: %s", err)
+					state.SetStatus(StatusStopped, "构建失败，请点击【强制重建】重试")
+					return
+				}
+				refreshCommit()
+				state.SetStatus(StatusStopped, "")
+				LogInfo("增量版本更新完成，正在启动服务")
+				if err := Start(); err != nil {
+					LogWarning("服务启动失败: %s", err)
+				}
+			}()
+			return
+		}
+
+		// 压缩包版本不高于已安装版本，直接清理
+		_ = os.Remove(tarPath)
+		LogInfo("内置离线源码包版本 (%s) 不高于当前版本 (%s)，清理并跳过解压", zipVer, installedVer)
 	}
+
+	refreshCommit()
 }
 
 func Start() error {
