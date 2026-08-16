@@ -18,6 +18,7 @@ const (
 	gitBin     = "/usr/bin/git"
 )
 
+func nodeBin() string { return filepath.Join(nodeBinDir, "node") }
 func npmBin() string  { return filepath.Join(nodeBinDir, "npm") }
 func pnpmBin() string { return filepath.Join(pkgVarDir, "pnpm-env", "node_modules", ".bin", "pnpm") }
 

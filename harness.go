@@ -228,7 +228,7 @@ func startLocked() error {
 		port = 2298
 	}
 
-	cmd := exec.Command(pnpmBin(), "dsh", "web", "--port", fmt.Sprintf("%d", port))
+	cmd := exec.Command(nodeBin(), "--import", "tsx/esm", "apps/cli/src/bin.ts", "web", "--port", fmt.Sprintf("%d", port))
 	cmd.Dir = srcDir
 	cmd.Env = buildEnv()
 	cmd.Stdout = NewLogWriterInfo()
