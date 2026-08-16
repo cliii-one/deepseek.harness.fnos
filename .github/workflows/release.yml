@@ -42,7 +42,7 @@ jobs:
           
           # 执行完整预构建并打包预构建包
           cd /tmp/upstream/deepseek-harness
-          pnpm install --no-frozen-lockfile
+          pnpm install --no-frozen-lockfile --package-import-method=copy
           pnpm run build
           pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
           
@@ -79,7 +79,7 @@ jobs:
           git clone --depth=1 https://github.com/deepseek-ai/deepseek-harness.git /tmp/upstream/deepseek-harness
           cd /tmp/upstream/deepseek-harness
           
-          pnpm install --no-frozen-lockfile
+          pnpm install --no-frozen-lockfile --package-import-method=copy
           pnpm run build
           pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
           

@@ -288,7 +288,6 @@ func buildEnv() []string {
 	env = appendOrReplace(env, "PATH", path+":/bin:/usr/bin:"+os.Getenv("PATH"))
 	env = appendOrReplace(env, "HOME", filepath.Join(pkgVarDir, "home"))
 	env = appendOrReplace(env, "CI", "true")
-	env = appendOrReplace(env, "npm_config_confirm_modules_purge", "false")
 	env = appendOrReplace(env, "npm_config_cache", filepath.Join(pkgVarDir, "npm-cache"))
 	env = appendOrReplace(env, "npm_config_registry", "https://registry.npmmirror.com")
 	env = appendOrReplace(env, "PNPM_HOME", filepath.Join(pkgVarDir, "pnpm-home"))
