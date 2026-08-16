@@ -218,25 +218,16 @@ func buildLandlock() error {
 }
 
 func hasPrebuiltArtifacts() bool {
-	// 检查主项目或 packages 各子模块中是否存在 dist 编译产物
-	if entries, err := os.ReadDir(srcDir); err == nil {
-		for _, e := range entries {
-			if e.IsDir() && (e.Name() == "dist" || e.Name() == "build") {
-				return true
-			}
-		}
+	// 检查前端 Web 与核心库预构建产物
+	webIndex := filepath.Join(srcDir, "apps", "web", "dist", "index.html")
+	if _, err := os.Stat(webIndex); err != nil {
+		return false
 	}
-	pkgDir := filepath.Join(srcDir, "packages")
-	if pkgs, err := os.ReadDir(pkgDir); err == nil {
-		for _, p := range pkgs {
-			if p.IsDir() {
-				if _, err := os.Stat(filepath.Join(pkgDir, p.Name(), "dist")); err == nil {
-					return true
-				}
-			}
-		}
+	coreLib := filepath.Join(srcDir, "packages", "api", "remotes", "lib")
+	if _, err := os.Stat(coreLib); err != nil {
+		return false
 	}
-	return false
+	return true
 }
 
 func hasNodeModules() bool {
@@ -253,7 +244,7 @@ func buildSource(allowFastStart bool) error {
 	prebuilt := hasPrebuiltArtifacts()
 	hasModules := hasNodeModules()
 
-	// 仅在允许快速启动（初次安装/解压内置离线包）且产物与依赖齐全时跳过编译
+	// 仅在允许快速启动（初次安装/解压内置离线预构建源码包）且产物与依赖齐全时跳过编译
 	if allowFastStart && hasModules && prebuilt {
 		LogInfo("检测到已内置运行时依赖与预构建产物，跳过依赖拉取与项目编译，极速启动")
 	} else {
@@ -261,7 +252,7 @@ func buildSource(allowFastStart bool) error {
 			return err
 		}
 		state.SetStatus(StatusBuilding, "正在安装依赖...")
-		if err := runCmd(srcDir, pnpmBin(), "install", "--registry", "https://registry.npmmirror.com"); err != nil {
+		if err := runCmd(srcDir, pnpmBin(), "install", "--confirm-modules-purge=false", "--registry", "https://registry.npmmirror.com"); err != nil {
 			return fmt.Errorf("pnpm install: %w", err)
 		}
 		state.SetStatus(StatusBuilding, "正在编译构建...")
@@ -291,9 +282,10 @@ func buildEnv() []string {
 	path := nodeBinDir
 	env = appendOrReplace(env, "PATH", path+":/bin:/usr/bin:"+os.Getenv("PATH"))
 	env = appendOrReplace(env, "HOME", filepath.Join(pkgVarDir, "home"))
+	env = appendOrReplace(env, "CI", "true")
+	env = appendOrReplace(env, "npm_config_confirm_modules_purge", "false")
 	env = appendOrReplace(env, "npm_config_cache", filepath.Join(pkgVarDir, "npm-cache"))
 	env = appendOrReplace(env, "npm_config_registry", "https://registry.npmmirror.com")
-	env = appendOrReplace(env, "npm_config_nodedir", "/var/apps/nodejs_v24/target")
 	env = appendOrReplace(env, "PNPM_HOME", filepath.Join(pkgVarDir, "pnpm-home"))
 	env = appendOrReplace(env, "DSH_HOME", filepath.Join(pkgVarDir, "dsh-data"))
 	env = appendOrReplace(env, "DSH_AGENTS_HOME", filepath.Join(pkgVarDir, "dsh-data", "agents"))

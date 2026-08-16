@@ -23,7 +23,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
 
       - name: Fetch and Prebuild Upstream Harness (amd64)
         run: |
@@ -39,7 +39,6 @@ jobs:
           pnpm install --no-frozen-lockfile
           pnpm run build
           pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
-          pnpm prune --prod --ignore-scripts
           
           cd /tmp/upstream
           tar -czf /tmp/deepseek-harness-amd64.tar.gz deepseek-harness
@@ -64,7 +63,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
 
       - name: Fetch and Prebuild Upstream Harness (arm64)
         run: |
@@ -76,7 +75,6 @@ jobs:
           pnpm install --no-frozen-lockfile
           pnpm run build
           pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
-          pnpm prune --prod --ignore-scripts
           
           cd /tmp/upstream
           tar -czf /tmp/deepseek-harness-arm64.tar.gz deepseek-harness
