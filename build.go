@@ -88,9 +88,7 @@ func update(forceRebuild bool) {
 
 func gitClone() error {
 	_ = os.MkdirAll(filepath.Dir(srcDir), 0755)
-	args := append(gitProxyArgs(), "clone", "--depth=1", repoURL, srcDir)
-	cmd := exec.Command(gitBin, args...)
-	cmd.Env = buildEnv()
+	cmd := gitCmd("clone", "--depth=1", repoURL, srcDir)
 	cmd.Stdout = NewLogWriterInfo()
 	cmd.Stderr = NewLogWriterWarn()
 	if err := cmd.Run(); err != nil {
@@ -100,19 +98,25 @@ func gitClone() error {
 }
 
 func gitPull() error {
-	args := append(gitProxyArgs(), "-C", srcDir, "pull", "--ff-only")
-	cmd := exec.Command(gitBin, args...)
-	cmd.Env = buildEnv()
-	cmd.Stdout = NewLogWriterInfo()
-	cmd.Stderr = NewLogWriterWarn()
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git pull: %w", err)
+	fetchCmd := gitCmd("-C", srcDir, "fetch", "--depth=1", "origin")
+	fetchCmd.Stdout = NewLogWriterInfo()
+	fetchCmd.Stderr = NewLogWriterWarn()
+	if err := fetchCmd.Run(); err != nil {
+		return fmt.Errorf("git fetch: %w", err)
+	}
+
+	resetCmd := gitCmd("-C", srcDir, "reset", "--hard", "FETCH_HEAD")
+	resetCmd.Stdout = NewLogWriterInfo()
+	resetCmd.Stderr = NewLogWriterWarn()
+	if err := resetCmd.Run(); err != nil {
+		return fmt.Errorf("git reset: %w", err)
 	}
 	return nil
 }
 
 func gitHead() string {
-	out, err := exec.Command(gitBin, "-C", srcDir, "rev-parse", "HEAD").Output()
+	cmd := gitCmd("-C", srcDir, "rev-parse", "HEAD")
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
@@ -123,7 +127,7 @@ func extractTarGz(tarPath, dst string) error {
 	if err := os.MkdirAll(dst, 0755); err != nil {
 		return err
 	}
-	cmd := exec.Command("tar", "-xzf", tarPath, "-C", dst)
+	cmd := exec.Command("tar", "--no-same-owner", "-xzf", tarPath, "-C", dst)
 	cmd.Stdout = NewLogWriterInfo()
 	cmd.Stderr = NewLogWriterWarn()
 	if err := cmd.Run(); err != nil {
@@ -257,7 +261,7 @@ func buildSource(allowFastStart bool) error {
 			return err
 		}
 		state.SetStatus(StatusBuilding, "正在安装依赖...")
-		if err := runCmd(srcDir, pnpmBin(), "install", "--confirm-modules-purge=false", "--registry", "https://registry.npmmirror.com"); err != nil {
+		if err := runCmd(srcDir, pnpmBin(), "install", "--config.confirm-modules-purge=false", "--registry", "https://registry.npmmirror.com"); err != nil {
 			return fmt.Errorf("pnpm install: %w", err)
 		}
 		state.SetStatus(StatusBuilding, "正在编译构建...")
@@ -310,15 +314,23 @@ func buildEnv() []string {
 	return env
 }
 
-func gitProxyArgs() []string {
+func gitBaseArgs() []string {
+	args := []string{"-c", "safe.directory=*"}
 	cfg := GetConfig()
-	if cfg.NetworkProxy == "" {
-		return nil
+	if cfg.NetworkProxy != "" {
+		args = append(args,
+			"-c", "http.proxy="+cfg.NetworkProxy,
+			"-c", "https.proxy="+cfg.NetworkProxy,
+		)
 	}
-	return []string{
-		"-c", "http.proxy=" + cfg.NetworkProxy,
-		"-c", "https.proxy=" + cfg.NetworkProxy,
-	}
+	return args
+}
+
+func gitCmd(extraArgs ...string) *exec.Cmd {
+	args := append(gitBaseArgs(), extraArgs...)
+	cmd := exec.Command(gitBin, args...)
+	cmd.Env = buildEnv()
+	return cmd
 }
 
 func appendOrReplace(env []string, key, val string) []string {
@@ -333,12 +345,23 @@ func appendOrReplace(env []string, key, val string) []string {
 }
 
 func refreshCommit() {
-	out, err := exec.Command(gitBin, "-C", srcDir, "rev-parse", "--short", "HEAD").Output()
-	if err != nil {
-		SetCommit("-")
-	} else {
-		SetCommit(strings.TrimSpace(string(out)))
+	cmd := gitCmd("-C", srcDir, "rev-parse", "--short", "HEAD")
+	out, err := cmd.Output()
+	commit := ""
+	if err == nil {
+		commit = strings.TrimSpace(string(out))
 	}
+	if commit == "" {
+		if data, err := os.ReadFile(filepath.Join(srcDir, ".commit")); err == nil {
+			commit = strings.TrimSpace(string(data))
+		} else if data, err := os.ReadFile(filepath.Join(appDest, ".commit")); err == nil {
+			commit = strings.TrimSpace(string(data))
+		}
+	}
+	if commit == "" {
+		commit = "-"
+	}
+	SetCommit(commit)
 	SetVersion(readVersion())
 }
 

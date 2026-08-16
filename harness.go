@@ -109,6 +109,11 @@ func InitHarness(pkgVar, appdest string) {
 	srcDir = filepath.Join(pkgVar, "src", "deepseek-harness")
 	appDest = appdest
 
+	// 全局配置 safe.directory，避免所有权异常导致 git 操作被拦截
+	configCmd := exec.Command(gitBin, "config", "--global", "--add", "safe.directory", "*")
+	configCmd.Env = buildEnv()
+	_ = configCmd.Run()
+
 	KillHarness()
 	StartWatchdog()
 
