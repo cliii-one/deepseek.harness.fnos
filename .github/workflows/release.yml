@@ -39,7 +39,7 @@ jobs:
           pnpm install --no-frozen-lockfile
           pnpm run build
           pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
-          pnpm prune --prod
+          pnpm prune --prod --ignore-scripts
           
           cd /tmp/upstream
           tar -czf /tmp/deepseek-harness-amd64.tar.gz deepseek-harness
@@ -76,7 +76,7 @@ jobs:
           pnpm install --no-frozen-lockfile
           pnpm run build
           pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
-          pnpm prune --prod
+          pnpm prune --prod --ignore-scripts
           
           cd /tmp/upstream
           tar -czf /tmp/deepseek-harness-arm64.tar.gz deepseek-harness

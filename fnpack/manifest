@@ -7,6 +7,7 @@ source                = thirdparty
 install_dep_apps      = nodejs_v24
 maintainer            = yuexps
 distributor           = yuexps
+distributor_url       = https://github.com/yuexps/deepseek.harness.fnos
 desktop_uidir         = ui
 desktop_applaunchname = deepseek.harness.Application
 micro_app             = true
