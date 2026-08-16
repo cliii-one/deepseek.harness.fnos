@@ -13,7 +13,13 @@
 - **工作区会话管理**：自动扫描并以网格卡片展示活跃工作区、关联会话数与最后更新时间。
 - **实时日志终端**：WebSocket 流式推送服务运行日志，支持自动滚动与日志一键导出下载。
 - **网络与代理设置**：支持自定义服务端口、反向代理端口、访问密码及外网网络代理。
-- **飞牛 OS 规范 UI**：基于 Vue 3 + Naive UI 重构，适配桌面端与移动端响应式操作。
+
+---
+
+## 预览
+
+<img width="1787" height="1113" alt="1" src="https://github.com/user-attachments/assets/e6b474d3-1fbe-4697-9048-027d4c40aa81" />
+<img width="1783" height="1117" alt="4" src="https://github.com/user-attachments/assets/1c3ccb09-a39c-40ba-b5b3-358fe9bdc7d2" />
 
 ---
 
