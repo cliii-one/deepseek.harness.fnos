@@ -48,10 +48,24 @@
       <!-- 日志容器与悬浮回到底部按钮 -->
       <div ref="logContainerRef" class="relative flex-1 min-h-0 flex flex-col overflow-hidden">
         <!-- Naive UI 原生日志组件：自适应撑满卡片高度并在内部滚动，支持 highlight.js 语法高亮与鼠标划选复制 -->
-        <n-log ref="logInstRef" :log="displayedText" :loading="fetching" :hljs="hljs" language="harness-log"
+        <n-log ref="logInstRef" :log="displayedText" :hljs="hljs" language="harness-log"
           :font-size="12" :line-height="1.5" trim
           class="flex-1 min-h-0 bg-slate-50 rounded-xl p-3 sm:p-4 border border-slate-100/80 select-text cursor-text overflow-hidden"
           style="height: 100%;" />
+
+        <!-- 正中央优雅居中加载遮罩 -->
+        <transition name="fade">
+          <div
+            v-if="fetching"
+            class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-50/85 backdrop-blur-[1px] rounded-xl pointer-events-none"
+          >
+            <n-spin size="medium">
+              <template #description>
+                <span class="text-xs text-slate-500 font-medium mt-2">正在获取运行日志…</span>
+              </template>
+            </n-spin>
+          </div>
+        </transition>
 
         <!-- 悬浮回到底部按钮 -->
         <transition name="fade-scale">
@@ -77,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, onActivated, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import {
   NCard,
@@ -88,6 +102,7 @@ import {
   NIcon,
   NTooltip,
   NLog,
+  NSpin,
   useMessage,
   type LogInst
 } from 'naive-ui'
@@ -178,9 +193,14 @@ const handleClear = withAsyncLock(async () => {
 })
 
 onMounted(() => {
-  logStore.fetchLogs().then(() => {
+  if (!logStore.logLines.length) {
+    logStore.fetchLogs().then(() => {
+      scrollToBottom()
+    })
+  } else {
     scrollToBottom()
-  })
+  }
+
   offFlush = logStore.onFlush(() => {
     scrollToBottom()
   })
@@ -190,6 +210,13 @@ onMounted(() => {
     scrollEl = logContainerRef.value?.querySelector('.n-scrollbar-container') as HTMLElement | null
     scrollEl?.addEventListener('scroll', handleScroll, { passive: true })
   })
+})
+
+// 切回日志页面时自动平滑同步滚动位置
+onActivated(() => {
+  if (autoScroll.value) {
+    scrollToBottom()
+  }
 })
 
 onUnmounted(() => {
@@ -229,6 +256,17 @@ onUnmounted(() => {
 :deep(.hljs-link) {
   color: #4f46e5;
   text-decoration: underline;
+}
+
+/* 居中加载遮罩淡入淡出动效 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 
 /* 悬浮按钮过渡动效 */

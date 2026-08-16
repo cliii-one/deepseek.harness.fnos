@@ -14,87 +14,96 @@ export const useConfigStore = defineStore('config', () => {
 
   const savedConfig = ref<SettingsConfig | null>(null)
   const loading = ref(false)
+  const saving = ref(false)
   const loadError = ref(false)
-  const saveError = ref(false)
   const lastErrorMessage = ref('')
   const configLoaded = ref(false)
 
-  let saveTimer: ReturnType<typeof setTimeout> | null = null
-
+  // 检测是否存在未保存的配置更改
   const isChanged = computed(() => {
     if (!savedConfig.value) return false
-    return JSON.stringify(config.value) !== JSON.stringify(savedConfig.value)
+    return (
+      config.value.server_port !== savedConfig.value.server_port ||
+      config.value.proxy_port !== savedConfig.value.proxy_port ||
+      (config.value.network_proxy || '') !== (savedConfig.value.network_proxy || '') ||
+      (config.value.reverse_proxy_url || '') !== (savedConfig.value.reverse_proxy_url || '') ||
+      (config.value.access_password || '') !== (savedConfig.value.access_password || '')
+    )
   })
 
+  // 内部监听端口是否变更
+  const isServerPortChanged = computed(() => {
+    if (!savedConfig.value) return false
+    return config.value.server_port !== savedConfig.value.server_port
+  })
+
+  // 反向代理端口是否变更
+  const isProxyPortChanged = computed(() => {
+    if (!savedConfig.value) return false
+    return config.value.proxy_port !== savedConfig.value.proxy_port
+  })
+
+  // 放弃修改，还原为当前已保存的服务器配置
+  function resetConfig() {
+    if (savedConfig.value) {
+      config.value = { ...savedConfig.value }
+    }
+  }
+
+  // 加载服务端配置
   async function fetchConfig(force = false): Promise<void> {
     if (configLoaded.value && !force) return
     loading.value = true
+    loadError.value = false
+    lastErrorMessage.value = ''
     try {
       const res = await configApi.getConfig()
       if (res.success && res.data) {
         config.value = { ...res.data }
         savedConfig.value = { ...res.data }
-        loadError.value = false
-        lastErrorMessage.value = ''
         configLoaded.value = true
       } else {
         loadError.value = true
         lastErrorMessage.value = res.message || '加载配置失败'
       }
+    } catch (e: any) {
+      loadError.value = true
+      lastErrorMessage.value = e?.message || '加载配置失败'
     } finally {
       loading.value = false
     }
   }
 
+  // 手动保存配置
   async function saveConfig(): Promise<RequestResult<SettingsConfig>> {
-    const res = await configApi.saveConfig(config.value)
-    if (res.success && res.data) {
-      savedConfig.value = { ...config.value }
-      saveError.value = false
-      lastErrorMessage.value = ''
-    } else {
-      saveError.value = true
-      lastErrorMessage.value = res.message || '保存配置失败'
+    if (saving.value) {
+      return { success: false, message: '正在保存中，请稍候' }
     }
-    return res
-  }
-
-  function triggerAutoSave(onSuccess?: () => void, onError?: (msg: string) => void) {
-    if (loadError.value) return
-    if (!isChanged.value) {
-      saveError.value = false
-      return
-    }
-
-    // 端口合法性基础校验：未输入完成时不触发保存
-    const sPort = config.value.server_port
-    const pPort = config.value.proxy_port
-    if (!sPort || sPort < 1 || sPort > 65535 || !pPort || pPort < 1 || pPort > 65535) {
-      return
-    }
-
-    if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(async () => {
-      const res = await saveConfig()
-      if (res.success) {
-        onSuccess?.()
-      } else {
-        onError?.(res.message)
+    saving.value = true
+    try {
+      const res = await configApi.saveConfig(config.value)
+      if (res.success && res.data) {
+        savedConfig.value = { ...config.value }
       }
-    }, 800)
+      return res
+    } finally {
+      saving.value = false
+    }
   }
 
   return {
     config,
     savedConfig,
     loading,
+    saving,
     loadError,
-    saveError,
     lastErrorMessage,
     configLoaded,
     isChanged,
+    isServerPortChanged,
+    isProxyPortChanged,
     fetchConfig,
     saveConfig,
-    triggerAutoSave
+    resetConfig
   }
 })

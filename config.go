@@ -61,13 +61,17 @@ func GetCommit() string {
 	return globalConfig.Commit
 }
 
-// persistConfig 将内存配置序列化写入 config.json
+// persistConfig 将内存配置序列化写入 config.json（临时文件原子写入）
 func persistConfig() {
 	data, err := json.MarshalIndent(globalConfig, "", "  ")
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(configFilePath, data, 0644)
+	tmpFile := configFilePath + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return
+	}
+	_ = os.Rename(tmpFile, configFilePath)
 }
 
 // SetBuildTime 记录构建完成时刻并持久化
@@ -102,5 +106,9 @@ func SaveConfig(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configFilePath, data, 0644)
+	tmpFile := configFilePath + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, configFilePath)
 }

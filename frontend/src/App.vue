@@ -60,7 +60,9 @@
                   >
                     <!-- 全局统一宽度约束容器 -->
                     <div class="w-full max-w-6xl flex-1 flex flex-col min-h-0">
-                      <component :is="currentView" />
+                      <KeepAlive>
+                        <component :is="currentView" :key="tab" />
+                      </KeepAlive>
                     </div>
                     <n-back-top :bottom="70" :right="20" class="sm:!bottom-8 sm:!right-8" />
                   </n-layout-content>

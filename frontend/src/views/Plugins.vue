@@ -129,17 +129,9 @@
         </div>
       </template>
 
-      <!-- 加载骨架屏 -->
-      <div v-if="loading" class="space-y-4 py-2">
-        <div v-for="i in 3" :key="i" class="space-y-2 p-3 bg-slate-50 rounded-xl">
-          <n-skeleton text style="width: 40%" />
-          <n-skeleton text :repeat="2" />
-        </div>
-      </div>
-
       <!-- 空状态 -->
-      <div v-else-if="!plugins.length" class="py-12 text-center">
-        <n-empty description="暂无已安装插件">
+      <div v-if="!plugins.length" class="py-12 text-center">
+        <n-empty :description="loading ? '正在获取插件列表…' : '暂无已安装插件'">
           <template #icon>
             <n-icon :size="48" class="text-slate-300">
               <Puzzle />
@@ -269,7 +261,6 @@ import {
   NListItem,
   NSwitch,
   NTag,
-  NSkeleton,
   NIcon,
   NUpload,
   NUploadDragger,
@@ -354,7 +345,9 @@ const handleUninstall = withAsyncLock(async (name: string) => {
 })
 
 onMounted(() => {
-  pluginStore.fetchPlugins()
+  if (!pluginStore.plugins.length) {
+    pluginStore.fetchPlugins()
+  }
 })
 </script>
 
