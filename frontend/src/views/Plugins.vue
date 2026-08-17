@@ -13,7 +13,7 @@
       <div v-auto-animate class="flex items-center gap-2">
         <n-popconfirm
           v-if="isRunning && needRestart"
-          @positive-click="handleRestartService"
+          @positive-click="onConfirmRestart"
           positive-text="确认重启"
           negative-text="取消"
         >
@@ -203,7 +203,7 @@
                     <span>更新</span>
                   </n-button>
 
-                  <n-popconfirm @positive-click="handleUninstall(p.name)" positive-text="确认卸载" negative-text="取消">
+                  <n-popconfirm @positive-click="onConfirmUninstall(p.name)" positive-text="确认卸载" negative-text="取消">
                     <template #trigger>
                       <n-button size="small" secondary type="error" :disabled="busy"
                         class="transition-transform duration-150 active:scale-95">
@@ -301,6 +301,10 @@ const handleRestartService = withAsyncLock(async () => {
   }
 })
 
+const onConfirmRestart = () => {
+  void handleRestartService()
+}
+
 const uploadFileList = ref<UploadFileInfo[]>([])
 
 const handleUploadChange = (data: { fileList: UploadFileInfo[] }) => {
@@ -350,6 +354,10 @@ const handleUninstall = withAsyncLock(async (name: string) => {
     message.error(res.message || '卸载失败')
   }
 })
+
+const onConfirmUninstall = (name: string) => {
+  void handleUninstall(name)
+}
 
 onMounted(() => {
   if (!pluginStore.plugins.length) {
