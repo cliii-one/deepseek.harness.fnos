@@ -189,27 +189,54 @@ func inspectAndHeal() {
 		}
 		procMu.Unlock()
 
-		// 运行状态下探活：如果内存无句柄或主 PID 已死，检查端口
+		// 运行状态下探活：如果内存无句柄或主 PID 已死，执行清理并纠偏
 		if pid <= 0 || !isProcessAlive(pid) {
-			cfg := GetConfig()
-			port := cfg.ServerPort
-			if port <= 0 {
-				port = 2298
-			}
-			pids := findPidsOnPort(port)
-			if len(pids) == 0 {
-				LogWarning("巡检发现服务进程异常终止，执行状态自愈纠偏")
-				procMu.Lock()
-				if process == mp {
-					process = nil
-					if pid > 0 {
-						removePidFileIfMatches(pid)
-					}
-					stopReverseProxy()
-					state.SetStatus(StatusStopped, "巡检发现进程已异常终止")
+			LogWarning("巡检发现服务主进程已终止 (PID=%d)，执行状态自愈与残留清理", pid)
+			procMu.Lock()
+			if process == mp {
+				process = nil
+				if pid > 0 {
+					removePidFileIfMatches(pid)
 				}
-				procMu.Unlock()
+				stopReverseProxy()
+				// 清理端口上可能霸占的孤儿进程
+				cfg := GetConfig()
+				port := cfg.ServerPort
+				if port <= 0 {
+					port = 2298
+				}
+				for _, orphanPid := range findPidsOnPort(port) {
+					LogInfo("清理霸占端口 %d 的孤儿残留进程 (PID=%d)", port, orphanPid)
+					killProcessTree(orphanPid)
+					_ = killProcessGroup(orphanPid)
+				}
+				state.SetStatus(StatusStopped, "巡检发现进程已异常终止")
 			}
+			procMu.Unlock()
+		}
+		return
+	}
+
+	// starting 状态下：若进程已死则纠偏，防止 UI 永久卡在启动中
+	if curStatus == StatusStarting {
+		procMu.Lock()
+		mp := process
+		var pid int
+		if mp != nil && mp.cmd != nil && mp.cmd.Process != nil {
+			pid = mp.cmd.Process.Pid
+		}
+		procMu.Unlock()
+
+		if pid > 0 && !isProcessAlive(pid) {
+			LogWarning("巡检发现 starting 状态进程已死 (PID=%d)，纠偏为 stopped", pid)
+			procMu.Lock()
+			if process == mp {
+				process = nil
+				removePidFileIfMatches(pid)
+				stopReverseProxy()
+				state.SetStatus(StatusStopped, "服务进程启动期间意外退出")
+			}
+			procMu.Unlock()
 		}
 		return
 	}

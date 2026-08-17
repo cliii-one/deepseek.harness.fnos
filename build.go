@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -57,7 +56,7 @@ func update(forceRebuild bool) {
 	}
 
 	if forceRebuild {
-		state.SetStatus(StatusBuilding, "正在强制重建...")
+		state.SetStatus(StatusBuilding, "正在强制重建（重新安装依赖并全量编译）...")
 	} else {
 		commitBefore := gitHead()
 		state.SetStatus(StatusBuilding, "正在拉取远程更新...")
@@ -69,11 +68,13 @@ func update(forceRebuild bool) {
 		commitAfter := gitHead()
 		if commitBefore != "" && commitBefore == commitAfter {
 			LogInfo("当前已是最新版本 (%s)，跳过构建", commitAfter)
+			state.SetStatus(StatusBuilding, fmt.Sprintf("当前已是最新版本 (%s)，跳过构建", commitAfter))
 			refreshCommit()
 			restartService()
 			return
 		}
 		LogInfo("检测到版本变更 (%s → %s)，开始构建", commitBefore, commitAfter)
+		state.SetStatus(StatusBuilding, fmt.Sprintf("检测到版本变更 (%s → %s)，正在同步依赖与构建...", commitBefore, commitAfter))
 	}
 
 	if err := buildSource(false); err != nil {
@@ -164,7 +165,6 @@ func installGCC() error {
 	args := []string{"install", "-y", "build-essential"}
 	LogInfo("缺失 gcc 工具链，正在执行 apt-get install build-essential")
 	cmd := exec.Command("apt-get", args...)
-	cmd.Env = buildEnv()
 	cmd.Stdout = NewLogWriterInfo()
 	cmd.Stderr = NewLogWriterWarn()
 	if err := cmd.Run(); err != nil {
@@ -188,7 +188,6 @@ func ensureMusl() error {
 	state.SetStatus(StatusBuilding, "缺少 musl 工具链，正在安装 musl-tools...")
 	LogInfo("缺失 musl 工具链，正在执行 apt-get install musl-tools")
 	cmd := exec.Command("apt-get", "install", "-y", "musl-tools")
-	cmd.Env = buildEnv()
 	cmd.Stdout = NewLogWriterInfo()
 	cmd.Stderr = NewLogWriterWarn()
 	if err := cmd.Run(); err != nil {
@@ -261,7 +260,7 @@ func buildSource(allowFastStart bool) error {
 			return err
 		}
 		state.SetStatus(StatusBuilding, "正在安装依赖...")
-		if err := runCmd(srcDir, pnpmBin(), "install", "--config.confirm-modules-purge=false", "--registry", "https://registry.npmmirror.com"); err != nil {
+		if err := runCmd(srcDir, pnpmBin(), "install", "--prefer-offline", "--config.confirm-modules-purge=false", "--registry", "https://registry.npmmirror.com"); err != nil {
 			return fmt.Errorf("pnpm install: %w", err)
 		}
 		state.SetStatus(StatusBuilding, "正在编译构建...")
@@ -281,37 +280,9 @@ func buildSource(allowFastStart bool) error {
 func runCmd(dir, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
-	cmd.Env = buildEnv()
 	cmd.Stdout = NewLogWriterInfo()
 	cmd.Stderr = NewLogWriterWarn()
 	return cmd.Run()
-}
-
-func buildEnv() []string {
-	env := os.Environ()
-	path := nodeBinDir
-	env = appendOrReplace(env, "PATH", path+":/bin:/usr/bin:"+os.Getenv("PATH"))
-	env = appendOrReplace(env, "HOME", filepath.Join(pkgVarDir, "home"))
-	env = appendOrReplace(env, "CI", "true")
-	env = appendOrReplace(env, "npm_config_cache", filepath.Join(pkgVarDir, "npm-cache"))
-	env = appendOrReplace(env, "npm_config_registry", "https://registry.npmmirror.com")
-	env = appendOrReplace(env, "PNPM_HOME", filepath.Join(pkgVarDir, "pnpm-home"))
-	env = appendOrReplace(env, "DSH_HOME", filepath.Join(pkgVarDir, "dsh-data"))
-	env = appendOrReplace(env, "DSH_AGENTS_HOME", filepath.Join(pkgVarDir, "dsh-data", "agents"))
-
-	cfg := GetConfig()
-	if cfg.NetworkProxy != "" {
-		noProxy := "localhost,127.0.0.1,::1,registry.npmmirror.com,npmmirror.com"
-		env = appendOrReplace(env, "npm_config_proxy", cfg.NetworkProxy)
-		env = appendOrReplace(env, "npm_config_https_proxy", cfg.NetworkProxy)
-		env = appendOrReplace(env, "npm_config_noproxy", noProxy)
-		env = appendOrReplace(env, "HTTP_PROXY", cfg.NetworkProxy)
-		env = appendOrReplace(env, "HTTPS_PROXY", cfg.NetworkProxy)
-		env = appendOrReplace(env, "ALL_PROXY", cfg.NetworkProxy)
-		env = appendOrReplace(env, "NO_PROXY", noProxy)
-		env = appendOrReplace(env, "no_proxy", noProxy)
-	}
-	return env
 }
 
 func gitBaseArgs() []string {
@@ -328,20 +299,7 @@ func gitBaseArgs() []string {
 
 func gitCmd(extraArgs ...string) *exec.Cmd {
 	args := append(gitBaseArgs(), extraArgs...)
-	cmd := exec.Command(gitBin, args...)
-	cmd.Env = buildEnv()
-	return cmd
-}
-
-func appendOrReplace(env []string, key, val string) []string {
-	prefix := key + "="
-	for i, e := range env {
-		if strings.HasPrefix(e, prefix) {
-			env[i] = prefix + val
-			return env
-		}
-	}
-	return append(env, prefix+val)
+	return exec.Command(gitBin, args...)
 }
 
 func refreshCommit() {
@@ -402,12 +360,10 @@ func pkgTypeName() string {
 	return "内置离线源码包"
 }
 
-// compareSemver 比较语义化版本（如 "0.1.0-rc.5", "0.1.0"）
-// 返回: 1 表示 v1 > v2, -1 表示 v1 < v2, 0 表示 v1 == v2
+// compareSemver 比较语义化版本，返回 1 (v1>v2), -1 (v1<v2), 0 (相等)
 func compareSemver(v1, v2 string) int {
 	v1 = strings.TrimPrefix(strings.TrimSpace(v1), "v")
 	v2 = strings.TrimPrefix(strings.TrimSpace(v2), "v")
-
 	if v1 == v2 {
 		return 0
 	}
@@ -418,23 +374,44 @@ func compareSemver(v1, v2 string) int {
 		return 1
 	}
 
-	core1, pre1 := splitPrerelease(v1)
-	core2, pre2 := splitPrerelease(v2)
+	splitVer := func(v string) (core string, pre string) {
+		if idx := strings.Index(v, "-"); idx != -1 {
+			return v[:idx], v[idx+1:]
+		}
+		return v, ""
+	}
 
-	nums1 := parseVersionNumbers(core1)
-	nums2 := parseVersionNumbers(core2)
+	core1, pre1 := splitVer(v1)
+	core2, pre2 := splitVer(v2)
 
+	parseNums := func(s string) []int {
+		parts := strings.Split(s, ".")
+		nums := make([]int, 0, len(parts))
+		for _, p := range parts {
+			var n int
+			for _, r := range p {
+				if r >= '0' && r <= '9' {
+					n = n*10 + int(r-'0')
+				} else {
+					break
+				}
+			}
+			nums = append(nums, n)
+		}
+		return nums
+	}
+
+	nums1, nums2 := parseNums(core1), parseNums(core2)
 	maxLen := len(nums1)
 	if len(nums2) > maxLen {
 		maxLen = len(nums2)
 	}
 
 	for i := 0; i < maxLen; i++ {
-		n1 := 0
+		var n1, n2 int
 		if i < len(nums1) {
 			n1 = nums1[i]
 		}
-		n2 := 0
 		if i < len(nums2) {
 			n2 = nums2[i]
 		}
@@ -446,7 +423,6 @@ func compareSemver(v1, v2 string) int {
 		}
 	}
 
-	// core 版本号相同，比较预发布版本 (semver 规则: 无 prerelease 大于 有 prerelease)
 	if pre1 == "" && pre2 != "" {
 		return 1
 	}
@@ -454,70 +430,12 @@ func compareSemver(v1, v2 string) int {
 		return -1
 	}
 	if pre1 != "" && pre2 != "" {
-		return comparePrerelease(pre1, pre2)
-	}
-
-	return 0
-}
-
-func splitPrerelease(v string) (core, pre string) {
-	if idx := strings.Index(v, "-"); idx != -1 {
-		return v[:idx], v[idx+1:]
-	}
-	return v, ""
-}
-
-func parseVersionNumbers(core string) []int {
-	parts := strings.Split(core, ".")
-	nums := make([]int, 0, len(parts))
-	for _, p := range parts {
-		var n int
-		for _, r := range p {
-			if r >= '0' && r <= '9' {
-				n = n*10 + int(r-'0')
-			} else {
-				break
-			}
+		if pre1 > pre2 {
+			return 1
 		}
-		nums = append(nums, n)
-	}
-	return nums
-}
-
-func comparePrerelease(p1, p2 string) int {
-	parts1 := strings.Split(p1, ".")
-	parts2 := strings.Split(p2, ".")
-	maxLen := len(parts1)
-	if len(parts2) > maxLen {
-		maxLen = len(parts2)
-	}
-
-	for i := 0; i < maxLen; i++ {
-		if i >= len(parts1) {
+		if pre1 < pre2 {
 			return -1
 		}
-		if i >= len(parts2) {
-			return 1
-		}
-		seg1, seg2 := parts1[i], parts2[i]
-		if seg1 == seg2 {
-			continue
-		}
-		num1, err1 := strconv.Atoi(seg1)
-		num2, err2 := strconv.Atoi(seg2)
-		if err1 == nil && err2 == nil {
-			if num1 > num2 {
-				return 1
-			}
-			if num1 < num2 {
-				return -1
-			}
-			continue
-		}
-		if seg1 > seg2 {
-			return 1
-		}
-		return -1
 	}
 	return 0
 }

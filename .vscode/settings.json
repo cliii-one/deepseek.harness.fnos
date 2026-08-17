@@ -8,5 +8,6 @@
       "GOOS": "linux",
       "GOARCH": "amd64"
     }
-  }
+  },
+  "css.lint.unknownAtRules": "ignore"
 }

@@ -6,13 +6,12 @@
 
 ## 主要功能
 
-- **进程管理与自愈**：一键启动、停止、重启、拉取更新与强制重建；内置 Linux 进程组强杀清理、后台 3 秒探活巡检与异常自动纠偏。
-- **插件生态管理**：
-  - 支持 4 类安装方式：npm 官方包、scoped 组织包、GitHub 简写库、Monorepo 子路径（带引号及 `#branch&path:/subpath`）。
-  - 支持插件压缩包上传、快速启停与构建白名单管理。
-- **工作区会话管理**：自动扫描并以网格卡片展示活跃工作区、关联会话数与最后更新时间。
-- **实时日志终端**：WebSocket 流式推送服务运行日志，支持自动滚动与日志一键导出下载。
-- **网络与代理设置**：支持自定义服务端口、反向代理端口、访问密码及外网网络代理。
+- **服务控制**：支持启动、停止、重启、拉取更新与强制重建，内置进程组清理与看门狗巡检自愈。
+- **插件管理**：支持命令安装（npm 包 / GitHub 仓库）、压缩包上传、构建脚本自动放行（allowBuilds）、一键启停与卸载。
+- **工作区查看**：实时同步工作区列表、关联会话数及更新时间，支持在文件管理中一键定位目录。
+- **安全与代理**：内置 HTTP/HTTPS 反向代理与自签名证书，支持访问密码鉴权拦截。
+- **运行日志**：WebSocket 实时推送日志，支持语法高亮、自动滚动、日志轮转、清空与下载。
+- **应用设置**：支持配置服务端口、反向代理端口、访问密码及网络代理，端口占用检测与热重载。
 
 ---
 
@@ -41,10 +40,11 @@ deepseek.harness/
 ├── plugins.go          # 插件解析、安装、启停与安全校验
 ├── allowbuilds.go      # 插件构建白名单管理
 ├── workspace.go        # 工作区数据提取与文件监控
-├── proxy.go            # 内置反向代理服务
+├── proxy.go            # 内置反向代理服务与访问认证
 ├── api.go              # RESTful API 与 WebSocket 实时通道
 ├── config.go           # 应用配置持久化
-├── logger.go           # 运行日志记录与订阅
+├── env.go              # 全局运行环境变量与代理注入
+├── logger.go           # 运行日志记录、轮转与增量订阅
 ├── main.go             # 程序入口与 Unix Socket 监听
 ├── fnpack/             # 飞牛 OS 应用包配置与生命周期脚本
 │   ├── manifest        # 应用元数据清单
@@ -53,6 +53,7 @@ deepseek.harness/
 └── frontend/           # Naive UI 前端项目
     ├── src/
     │   ├── api/        # 统一 API 接口服务
+    │   ├── mock/       # 本地离线开发仿真插件 (Vite)
     │   ├── stores/     # Pinia 模块化状态管理
     │   ├── utils/      # HTTP 客户端与 WebSocket 管理器
     │   ├── types/      # TypeScript 契约与类型定义
@@ -70,9 +71,10 @@ deepseek.harness/
 cd frontend
 npm install
 npm run build
+cd ..
 ```
 
-### 2. 后端编译（针对 Linux）
+### 2. 后端编译（针对 Linux amd64）
 ```bash
 set GOOS=linux
 set GOARCH=amd64

@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -315,25 +316,35 @@ func startReverseProxyLocked() error {
 	proxyHTTPS = &http.Server{Handler: proxyWithAuth(proxy), TLSConfig: tlsCfg}
 	proxyHTTP = &http.Server{Handler: proxyWithAuth(proxy)}
 
-	LogInfo("反向代理服务已就绪 [%s → %s]", proxyAddr, proxyTarget.String())
+	LogInfo("Web 服务就绪探测通过，反向代理启动完成 [%s → %s]", proxyAddr, proxyTarget.String())
 
 	go func() {
-		if err := proxyHTTPS.ServeTLS(tlsL, "", ""); err != nil && err != http.ErrServerClosed {
+		if err := proxyHTTPS.ServeTLS(tlsL, "", ""); err != nil && !isExpectedCloseErr(err) {
 			LogWarning("HTTPS 代理服务异常退出: %s", err)
 		}
 	}()
 	go func() {
-		if err := proxyHTTP.Serve(httpL); err != nil && err != http.ErrServerClosed {
+		if err := proxyHTTP.Serve(httpL); err != nil && !isExpectedCloseErr(err) {
 			LogWarning("HTTP 代理服务异常退出: %s", err)
 		}
 	}()
 	go func() {
-		if err := mx.Serve(); err != nil && err != net.ErrClosed {
+		if err := mx.Serve(); err != nil && !isExpectedCloseErr(err) {
 			LogWarning("cmux 协议多路复用器退出: %s", err)
 		}
 	}()
 
 	return nil
+}
+
+func isExpectedCloseErr(err error) bool {
+	if err == nil || err == http.ErrServerClosed || err == net.ErrClosed || err == cmux.ErrListenerClosed || err == cmux.ErrServerClosed {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "use of closed network connection") ||
+		strings.Contains(msg, "server closed") ||
+		strings.Contains(msg, "closed network connection")
 }
 
 func stopReverseProxy() {
@@ -366,8 +377,10 @@ func stopReverseProxyLocked() {
 // proxyErrMessage 根据当前服务状态给出准确的代理错误提示
 func proxyErrMessage() string {
 	switch state.Status() {
-	case StatusRunning:
+	case StatusStarting:
 		return "服务启动中，请稍候重试"
+	case StatusRunning:
+		return "服务响应异常，请检查后端运行状态"
 	case StatusBuilding:
 		return "服务构建中，请稍候重试"
 	case StatusStopped:
@@ -382,6 +395,9 @@ func restartReverseProxy() {
 	proxyMu.Lock()
 	defer proxyMu.Unlock()
 	stopReverseProxyLocked()
+	if state.Status() != StatusRunning {
+		return
+	}
 	LogInfo("反向代理配置已变更，执行热重载")
 	if err := startReverseProxyLocked(); err != nil {
 		LogWarning("反向代理热重载失败: %s", err)

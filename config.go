@@ -18,6 +18,7 @@ type Config struct {
 	Version         string `json:"version,omitempty"`
 	Commit          string `json:"commit,omitempty"`
 	BuildTime       string `json:"build_time,omitempty"`
+	LastRunState    string `json:"last_run_state,omitempty"`
 }
 
 var (
@@ -61,6 +62,12 @@ func GetCommit() string {
 	return globalConfig.Commit
 }
 
+func GetLastRunState() string {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return globalConfig.LastRunState
+}
+
 // persistConfig 将内存配置序列化写入 config.json（临时文件原子写入）
 func persistConfig() {
 	data, err := json.MarshalIndent(globalConfig, "", "  ")
@@ -98,8 +105,19 @@ func SetCommit(c string) {
 	persistConfig()
 }
 
+// SetLastRunState 持久化最近一次运行状态
+func SetLastRunState(st string) {
+	configMu.Lock()
+	globalConfig.LastRunState = st
+	configMu.Unlock()
+	persistConfig()
+}
+
 func SaveConfig(cfg Config) error {
 	configMu.Lock()
+	if cfg.LastRunState == "" && globalConfig.LastRunState != "" {
+		cfg.LastRunState = globalConfig.LastRunState
+	}
 	globalConfig = cfg
 	configMu.Unlock()
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -110,5 +128,9 @@ func SaveConfig(cfg Config) error {
 	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
 		return err
 	}
-	return os.Rename(tmpFile, configFilePath)
+	if err := os.Rename(tmpFile, configFilePath); err != nil {
+		return err
+	}
+	ApplyProxyEnv()
+	return nil
 }

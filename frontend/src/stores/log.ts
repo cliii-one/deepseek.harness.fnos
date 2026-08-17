@@ -7,34 +7,44 @@ export const useLogStore = defineStore('log', () => {
   const logLines = ref<string[]>([])
   const logAutoScroll = ref(true)
   const fetching = ref(false)
+  const hasLoadedSnapshot = ref(false)
 
-  const MAX_LOG_BYTES = 100 * 1024
-  const MAX_LOG_LINES = 5000
+  const MAX_LOG_LINES = 150
   const FLUSH_INTERVAL = 80
 
   let pendingBuffer = ''
   let flushTimer: ReturnType<typeof setTimeout> | null = null
   const flushListeners = new Set<() => void>()
 
+  function splitLines(text: string): string[] {
+    if (!text) return []
+    const raw = text.split('\n')
+    const lines: string[] = []
+    for (let i = 0; i < raw.length - 1; i++) {
+      lines.push(raw[i] + '\n')
+    }
+    if (raw[raw.length - 1]) {
+      lines.push(raw[raw.length - 1])
+    }
+    return lines
+  }
+
   function trimLogs() {
-    const arr = logLines.value
-    let total = 0
-    for (let i = arr.length - 1; i >= 0; i--) {
-      total += arr[i].length
-      if (total > MAX_LOG_BYTES || arr.length - i > MAX_LOG_LINES) {
-        arr.splice(0, i + 1)
-        return
-      }
+    if (logLines.value.length > MAX_LOG_LINES) {
+      logLines.value = logLines.value.slice(-MAX_LOG_LINES)
     }
   }
 
   function flushPending() {
     flushTimer = null
     if (!pendingBuffer) return
-    logLines.value.push(pendingBuffer)
+    const incomingLines = splitLines(pendingBuffer)
     pendingBuffer = ''
-    trimLogs()
-    flushListeners.forEach((fn) => fn())
+    if (incomingLines.length > 0) {
+      logLines.value.push(...incomingLines)
+      trimLogs()
+      flushListeners.forEach((fn) => fn())
+    }
   }
 
   function appendChunk(chunk: string) {
@@ -52,8 +62,11 @@ export const useLogStore = defineStore('log', () => {
   }
 
   function setLogs(lines: string[]) {
-    logLines.value = [...lines]
-    trimLogs()
+    const flattened: string[] = []
+    for (const l of lines) {
+      flattened.push(...splitLines(l))
+    }
+    logLines.value = flattened.slice(-MAX_LOG_LINES)
     flushListeners.forEach((fn) => fn())
   }
 
@@ -64,6 +77,7 @@ export const useLogStore = defineStore('log', () => {
     try {
       const res = await logApi.getLogs()
       if (res.success && res.data) {
+        hasLoadedSnapshot.value = true
         if (Array.isArray(res.data.lines) && res.data.lines.length > 0) {
           setLogs(res.data.lines)
         } else if (typeof res.data.content === 'string' && res.data.content) {
@@ -98,6 +112,7 @@ export const useLogStore = defineStore('log', () => {
     logLines,
     logAutoScroll,
     fetching,
+    hasLoadedSnapshot,
     displayedText,
     appendChunk,
     setLogs,

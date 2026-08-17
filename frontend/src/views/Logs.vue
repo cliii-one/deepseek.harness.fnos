@@ -11,7 +11,7 @@
       <template #header-extra>
         <n-flex :size="8" align="center" :wrap="false">
           <!-- 自动滚动开关 -->
-          <n-button size="small" secondary v-debounce @click="autoScroll = !autoScroll">
+          <n-button size="small" secondary @click="autoScroll = !autoScroll">
             <div class="flex items-center gap-1.5">
               <span>自动滚动</span>
               <n-switch :value="autoScroll" size="small" @click.stop="autoScroll = !autoScroll" />
@@ -19,25 +19,27 @@
           </n-button>
 
           <!-- 下载日志按钮 -->
-          <n-button size="small" secondary v-debounce @click="logStore.downloadLogs">
-            <template #icon>
-              <n-icon>
+          <n-button size="small" secondary @click="logStore.downloadLogs" title="下载日志"
+            class="!px-2 sm:!px-2.5">
+            <div class="flex items-center justify-center gap-1">
+              <n-icon :size="16">
                 <Download />
               </n-icon>
-            </template>
-            <span class="hidden sm:inline">下载</span>
+              <span class="hidden sm:inline">下载</span>
+            </div>
           </n-button>
 
           <!-- 清空日志按钮 -->
           <n-popconfirm @positive-click="handleClear" positive-text="确认清空" negative-text="取消">
             <template #trigger>
-              <n-button size="small" secondary v-debounce type="error">
-                <template #icon>
-                  <n-icon>
+              <n-button size="small" secondary type="error" title="清空日志"
+                class="!px-2 sm:!px-2.5">
+                <div class="flex items-center justify-center gap-1">
+                  <n-icon :size="16">
                     <Trash />
                   </n-icon>
-                </template>
-                <span class="hidden sm:inline">清空</span>
+                  <span class="hidden sm:inline">清空</span>
+                </div>
               </n-button>
             </template>
             确定要清空所有运行日志吗？
@@ -68,17 +70,17 @@
         </transition>
 
         <!-- 悬浮回到底部按钮 -->
-        <transition name="fade-scale">
-          <div v-show="showScrollToBottom" class="absolute right-3.5 bottom-3.5 sm:right-5 sm:bottom-5 z-10">
-            <n-tooltip trigger="hover" placement="left">
+        <transition name="fade">
+          <div v-show="showScrollToBottom" class="absolute right-3.5 bottom-3.5 sm:right-4 sm:bottom-4 z-10">
+            <n-tooltip trigger="hover" placement="left" :disabled="isTouch">
               <template #trigger>
-                <n-button circle secondary v-debounce type="primary" size="medium" @click="manualScrollToBottom"
-                  class="!shadow-md !bg-white/90 !backdrop-blur-sm hover:!bg-white !border !border-slate-200/80 transition-all hover:scale-105">
-                  <template #icon>
-                    <n-icon :size="18">
+                <n-button size="small" secondary @click="manualScrollToBottom"
+                  class="!w-7 !h-7 sm:!w-8 sm:!h-8 !p-0 shadow-sm border border-slate-200/90 bg-white/95 transition-transform duration-150 active:scale-90">
+                  <div class="flex items-center justify-center">
+                    <n-icon :size="16" class="text-slate-600">
                       <ArrowDown />
                     </n-icon>
-                  </template>
+                  </div>
                 </n-button>
               </template>
               回到底部
@@ -110,6 +112,7 @@ import { Download, Trash, ArrowDown } from '@vicons/tabler'
 import hljs from 'highlight.js/lib/core'
 import { useLogStore } from '../stores/log'
 import { withAsyncLock } from '../utils/debounce'
+import { useIsTouchDevice } from '../utils/device'
 
 // 注册专用的 harness-log 日志高亮规则
 hljs.registerLanguage('harness-log', () => ({
@@ -154,6 +157,7 @@ hljs.registerLanguage('harness-log', () => ({
 
 const logStore = useLogStore()
 const message = useMessage()
+const isTouch = useIsTouchDevice()
 const { displayedText, logAutoScroll: autoScroll, fetching } = storeToRefs(logStore)
 
 const logInstRef = ref<LogInst | null>(null)
@@ -186,14 +190,14 @@ const manualScrollToBottom = () => {
 const handleClear = withAsyncLock(async () => {
   const res = await logStore.clearLogs()
   if (res.success) {
-    message.success('日志已清空')
+    message.success(res.message || '运行日志已清空')
   } else {
     message.error(res.message || '清空日志失败')
   }
 })
 
 onMounted(() => {
-  if (!logStore.logLines.length) {
+  if (!logStore.hasLoadedSnapshot) {
     logStore.fetchLogs().then(() => {
       scrollToBottom()
     })

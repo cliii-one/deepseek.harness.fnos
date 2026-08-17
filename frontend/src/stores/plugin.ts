@@ -13,6 +13,16 @@ export const usePluginStore = defineStore('plugin', () => {
   const file = ref<File | null>(null)
   const preview = ref<PreviewResult | null>(null)
 
+  const needRestart = ref(false)
+
+  function markRestartNeeded() {
+    needRestart.value = true
+  }
+
+  function clearRestartNeeded() {
+    needRestart.value = false
+  }
+
   let previewTimer: ReturnType<typeof setTimeout> | null = null
 
   function setCommand(cmd: string) {
@@ -67,6 +77,9 @@ export const usePluginStore = defineStore('plugin', () => {
     const wasBusy = pluginBusy.value
     pluginBusy.value = s.running
     if (wasBusy && !s.running) {
+      if (s.ok) {
+        needRestart.value = true
+      }
       fetchPlugins()
     }
   }
@@ -97,6 +110,7 @@ export const usePluginStore = defineStore('plugin', () => {
   async function togglePlugin(name: string, enable: boolean): Promise<RequestResult<unknown>> {
     const res = await pluginApi.toggle(name, enable)
     if (res.success) {
+      needRestart.value = true
       await fetchPlugins()
     }
     return res
@@ -114,11 +128,14 @@ export const usePluginStore = defineStore('plugin', () => {
     plugins,
     loading,
     pluginBusy,
+    needRestart,
     mode,
     command,
     file,
     preview,
     canInstall,
+    markRestartNeeded,
+    clearRestartNeeded,
     setCommand,
     fetchPlugins,
     updatePluginStatus,

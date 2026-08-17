@@ -38,7 +38,7 @@ jobs:
           
           # 打包纯源码包（不含 node_modules 与编译产物）
           cd /tmp/upstream
-          tar -czf /tmp/deepseek-harness-source.tar.gz deepseek-harness
+          tar --numeric-owner -czf /tmp/deepseek-harness-source.tar.gz deepseek-harness
           
           # 执行完整预构建并打包预构建包
           cd /tmp/upstream/deepseek-harness
@@ -47,7 +47,7 @@ jobs:
           pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
           
           cd /tmp/upstream
-          tar -czf /tmp/deepseek-harness-amd64.tar.gz deepseek-harness
+          tar --numeric-owner -czf /tmp/deepseek-harness-amd64.tar.gz deepseek-harness
 
       - name: Upload amd64 Artifact
         uses: actions/upload-artifact@v4
@@ -84,7 +84,7 @@ jobs:
           pnpm --filter @deepseek-ai/node-addon-landlock-run-workspace run build:native || true
           
           cd /tmp/upstream
-          tar -czf /tmp/deepseek-harness-arm64.tar.gz deepseek-harness
+          tar --numeric-owner -czf /tmp/deepseek-harness-arm64.tar.gz deepseek-harness
 
       - name: Upload arm64 Artifact
         uses: actions/upload-artifact@v4

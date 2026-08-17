@@ -1,17 +1,22 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 const (
 	StatusStopped  = "stopped"
+	StatusStarting = "starting"
 	StatusRunning  = "running"
 	StatusBuilding = "building"
 )
@@ -28,6 +33,8 @@ var state = &HarnessState{status: StatusStopped, stateSubs: make(map[chan struct
 
 func (s *HarnessState) SetStatus(status, msg string) {
 	s.mu.Lock()
+	oldStatus := s.status
+	oldMsg := s.lastMessage
 	becameRunning := status == StatusRunning && s.status != status
 	changed := s.status != status || s.lastMessage != msg
 	s.status = status
@@ -37,6 +44,13 @@ func (s *HarnessState) SetStatus(status, msg string) {
 	}
 	s.mu.Unlock()
 	if changed {
+		if oldStatus != status || (msg != "" && msg != oldMsg) {
+			if msg != "" {
+				LogInfo("[状态变更] %s → %s: %s", oldStatus, status, msg)
+			} else {
+				LogInfo("[状态变更] %s → %s", oldStatus, status)
+			}
+		}
 		s.notify()
 	}
 }
@@ -57,13 +71,8 @@ func (s *HarnessState) Snapshot() (status, uptime, lastMsg, commit, version, bui
 	if status == StatusRunning && !s.startTime.IsZero() {
 		startedAt = s.startTime.Unix()
 		uptime = formatDuration(time.Since(s.startTime))
-	} else {
-		uptime = "-"
 	}
 	buildTime = GetBuildTime()
-	if buildTime == "" {
-		buildTime = "-"
-	}
 	return
 }
 
@@ -111,7 +120,6 @@ func InitHarness(pkgVar, appdest string) {
 
 	// 全局配置 safe.directory，避免所有权异常导致 git 操作被拦截
 	configCmd := exec.Command(gitBin, "config", "--global", "--add", "safe.directory", "*")
-	configCmd.Env = buildEnv()
 	_ = configCmd.Run()
 
 	KillHarness()
@@ -197,11 +205,16 @@ func InitHarness(pkgVar, appdest string) {
 	}
 
 	refreshCommit()
-	go func() {
-		if err := Start(); err != nil {
-			LogWarning("服务启动失败: %s", err)
-		}
-	}()
+	if GetLastRunState() == StatusRunning {
+		LogInfo("检测到上次运行状态为 running，正在自动拉起服务")
+		go func() {
+			if err := Start(); err != nil {
+				LogWarning("服务启动失败: %s", err)
+			}
+		}()
+	} else {
+		LogInfo("上次运行状态非 running (%s)，跳过自动启动", GetLastRunState())
+	}
 }
 
 func Start() error {
@@ -210,6 +223,9 @@ func Start() error {
 
 	if state.Status() == StatusBuilding {
 		return fmt.Errorf("正在构建中，请稍候再试")
+	}
+	if state.Status() == StatusStarting {
+		return fmt.Errorf("服务正在启动中，请稍候")
 	}
 	if state.Status() == StatusRunning {
 		return fmt.Errorf("服务已在运行中")
@@ -224,8 +240,29 @@ func Start() error {
 	return startLocked()
 }
 
+// dshCliCmd 动态解析 dsh 运行命令，失败时以 pnpm 兜底
+func dshCliCmd(subArgs ...string) (string, []string) {
+	pkgPath := filepath.Join(srcDir, "package.json")
+	if data, err := os.ReadFile(pkgPath); err == nil {
+		var pkg struct {
+			Scripts map[string]string `json:"scripts"`
+		}
+		if err := json.Unmarshal(data, &pkg); err == nil {
+			if script := strings.TrimSpace(pkg.Scripts["dsh"]); script != "" {
+				parts := strings.Fields(script)
+				if len(parts) > 0 && (parts[0] == "tsx" || parts[0] == "node") {
+					cmdArgs := append([]string{}, parts[1:]...)
+					return nodeBin(), append(cmdArgs, subArgs...)
+				}
+			}
+		}
+	}
+	return pnpmBin(), append([]string{"dsh"}, subArgs...)
+}
+
 func startLocked() error {
 	killHarnessLocked()
+	_ = enforcePluginPreferences()
 
 	cfg := GetConfig()
 	port := cfg.ServerPort
@@ -233,9 +270,9 @@ func startLocked() error {
 		port = 2298
 	}
 
-	cmd := exec.Command(nodeBin(), "--import", "tsx/esm", "apps/cli/src/bin.ts", "web", "--port", fmt.Sprintf("%d", port))
+	bin, args := dshCliCmd("web", "--port", fmt.Sprintf("%d", port))
+	cmd := exec.Command(bin, args...)
 	cmd.Dir = srcDir
-	cmd.Env = buildEnv()
 	cmd.Stdout = NewLogWriterInfo()
 	cmd.Stderr = NewLogWriterWarn()
 	setProcessGroup(cmd)
@@ -250,10 +287,10 @@ func startLocked() error {
 
 	_ = os.WriteFile(pidFilePath(), []byte(strconv.Itoa(cmd.Process.Pid)), 0644)
 
-	state.SetStatus(StatusRunning, "")
-	LogInfo("服务主进程已启动 (PID=%d, Port=%d)", cmd.Process.Pid, port)
+	state.SetStatus(StatusStarting, "服务主进程已拉起，正在等待 Web 服务就绪...")
+	LogInfo("服务主进程已拉起 (PID=%d)，正在等待 Web 服务就绪...", cmd.Process.Pid)
 
-	startReverseProxy()
+	go waitAndActivateReverseProxy(mp, port)
 
 	go func(mp *managedProcess) {
 		err := mp.cmd.Wait()
@@ -266,11 +303,13 @@ func startLocked() error {
 			stopReverseProxy()
 
 			if mp.stopRequested {
+				LogInfo("服务主进程已按要求停止 (PID=%d)", mp.cmd.Process.Pid)
 				state.SetStatus(StatusStopped, "")
 			} else if err != nil {
-				LogWarning("服务主进程异常退出: %s", err)
+				LogWarning("服务主进程异常退出 (PID=%d): %s", mp.cmd.Process.Pid, err)
 				state.SetStatus(StatusStopped, "进程意外退出: "+err.Error())
 			} else {
+				LogInfo("服务主进程正常退出 (PID=%d)", mp.cmd.Process.Pid)
 				state.SetStatus(StatusStopped, "")
 			}
 		} else {
@@ -285,6 +324,8 @@ func startLocked() error {
 }
 
 func stopAndWait() {
+	stopReverseProxy()
+
 	procMu.Lock()
 	mp := process
 	if mp != nil {
@@ -332,4 +373,59 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%d分%d秒", m, s)
 	}
 	return fmt.Sprintf("%d秒", s)
+}
+
+func waitAndActivateReverseProxy(mp *managedProcess, port int) {
+	targetURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	client := &http.Client{
+		Timeout: 500 * time.Millisecond,
+	}
+
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeout := time.After(60 * time.Second)
+
+	for {
+		select {
+		case <-mp.done:
+			// 进程已退出，终止探测
+			return
+		case <-timeout:
+			LogWarning("Web 服务就绪探测超时 (60s)，目标端口: %d", port)
+			procMu.Lock()
+			if process == mp {
+				killHarnessLocked()
+				state.SetStatus(StatusStopped, fmt.Sprintf("Web 服务就绪探测超时 (端口 %d 未响应)", port))
+			}
+			procMu.Unlock()
+			return
+		case <-ticker.C:
+			// 优先尝试 HTTP 请求获取响应
+			resp, err := client.Get(targetURL)
+			ready := false
+			if err == nil {
+				_ = resp.Body.Close()
+				ready = true
+			} else {
+				// 兜底尝试 TCP 握手是否已开放监听
+				conn, dialErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 200*time.Millisecond)
+				if dialErr == nil {
+					_ = conn.Close()
+					ready = true
+				}
+			}
+
+			if ready {
+				procMu.Lock()
+				if process == mp && !mp.stopRequested && mp.cmd != nil && mp.cmd.Process != nil && isProcessAlive(mp.cmd.Process.Pid) {
+					startReverseProxy()
+					state.SetStatus(StatusRunning, "")
+					SetLastRunState(StatusRunning)
+				}
+				procMu.Unlock()
+				return
+			}
+		}
+	}
 }

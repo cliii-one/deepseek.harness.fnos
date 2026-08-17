@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { TrimApp } from '@trimjs/web-app'
+import { trimSdk } from '../utils/trimSdk'
 import { workspaceApi, configApi } from '../api'
 import type { WorkspaceData, WorkspaceItem } from '../types/api'
 
@@ -12,8 +12,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const dataLibraryPath = ref('')
   const loading = ref(false)
 
-  let trimApp: TrimApp | null = null
-
   const items = computed<WorkspaceItem[]>(() => {
     return (workspaceData.value.items || []).filter(Boolean)
   })
@@ -22,13 +20,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     workspaceData.value = {
       items: data.items || [],
       archivedSessionIds: data.archivedSessionIds || []
-    }
-  }
-
-  async function initTrimApp() {
-    if (!trimApp) {
-      trimApp = new TrimApp()
-      await trimApp.ready()
     }
   }
 
@@ -52,29 +43,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function openDataLibrary(): Promise<{ success: boolean; message?: string }> {
-    await initTrimApp()
-    if (!trimApp || !dataLibraryPath.value) {
+    if (!dataLibraryPath.value) {
       return { success: false, message: '数据目录路径未配置' }
     }
-    try {
-      await trimApp.openFileManager(dataLibraryPath.value)
-      return { success: true }
-    } catch (e: any) {
-      return { success: false, message: e?.message || String(e) }
-    }
+    return trimSdk.openFileManager(dataLibraryPath.value)
   }
 
   async function openWorkspace(path: string): Promise<{ success: boolean; message?: string }> {
-    await initTrimApp()
-    if (!trimApp) {
-      return { success: false, message: '飞牛客户端未就绪' }
-    }
-    try {
-      await trimApp.openFileManager(path)
-      return { success: true }
-    } catch (e: any) {
-      return { success: false, message: e?.message || String(e) }
-    }
+    return trimSdk.openFileManager(path)
   }
 
   return {

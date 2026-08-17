@@ -5,12 +5,13 @@
       <h1 class="text-xl font-bold text-slate-800 tracking-tight">应用设置</h1>
 
       <!-- 右侧同行操作按钮组 -->
-      <div class="flex items-center gap-2">
+      <div v-auto-animate class="flex items-center gap-2">
         <n-button
           v-if="isChanged"
-          size="medium"
+          size="small"
           :disabled="saving"
           @click="handleReset"
+          class="!h-9 !px-3.5 rounded-xl font-medium transition-transform duration-150 active:scale-95"
         >
           <template #icon>
             <n-icon>
@@ -22,11 +23,11 @@
 
         <n-button
           type="primary"
-          size="medium"
+          size="small"
           :loading="saving"
           :disabled="!isChanged || loadError || !configLoaded"
           @click="handleSave"
-          class="px-5 shadow-sm shadow-fnos-blue/20"
+          class="!h-9 !px-4 rounded-xl font-medium shadow-sm shadow-fnos-blue/20 transition-all duration-150 active:scale-95"
         >
           <template #icon v-if="!saving">
             <n-icon>
@@ -38,34 +39,33 @@
       </div>
     </div>
 
-    <!-- 加载失败轻量状态 -->
-    <template v-if="loadError && !configLoaded">
-      <n-card :bordered="false" class="shadow-sm py-12 text-center">
+    <!-- 加载状态与表单内容过渡容器 -->
+    <div v-auto-animate class="w-full flex-1">
+      <!-- 加载失败轻量状态 -->
+      <n-card v-if="loadError && !configLoaded" :bordered="false" class="shadow-sm py-12 text-center rounded-2xl">
         <n-empty description="配置加载失败">
           <template #extra>
-            <n-button size="small" secondary @click="configStore.fetchConfig(true)">
+            <n-button size="small" secondary @click="configStore.fetchConfig(true)" class="transition-transform duration-150 active:scale-95">
               重新加载
             </n-button>
           </template>
         </n-empty>
       </n-card>
-    </template>
 
-    <!-- 配置表单内容 -->
-    <template v-else>
-      <n-form ref="formRef" :model="config" :rules="rules" label-placement="top" size="medium">
+      <!-- 配置表单内容 -->
+      <n-form v-else ref="formRef" :model="config" :rules="rules" label-placement="top" size="medium">
         <div class="flex flex-col gap-4 sm:gap-6">
           <!-- 核心服务网络与端口配置卡片 -->
-          <n-card title="核心服务" :bordered="false" class="shadow-sm">
+          <n-card title="核心服务" :bordered="false" class="shadow-sm rounded-2xl">
             <n-grid :cols="2" :x-gap="20" :y-gap="16" responsive="screen" item-responsive>
               <n-gi span="2 m:1">
                 <n-form-item label="内部监听端口" path="server_port">
                   <template #label>
                     <div class="flex items-center gap-1.5">
                       <span>内部监听端口</span>
-                      <n-tooltip trigger="hover">
+                      <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
                         <template #trigger>
-                          <n-icon size="14" class="text-slate-400 cursor-help">
+                          <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
                             <Help />
                           </n-icon>
                         </template>
@@ -88,9 +88,9 @@
                   <template #label>
                     <div class="flex items-center gap-1.5">
                       <span>反向代理端口</span>
-                      <n-tooltip trigger="hover">
+                      <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
                         <template #trigger>
-                          <n-icon size="14" class="text-slate-400 cursor-help">
+                          <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
                             <Help />
                           </n-icon>
                         </template>
@@ -113,9 +113,9 @@
                   <template #label>
                     <div class="flex items-center gap-1.5">
                       <span>外部访问地址</span>
-                      <n-tooltip trigger="hover">
+                      <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
                         <template #trigger>
-                          <n-icon size="14" class="text-slate-400 cursor-help">
+                          <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
                             <Help />
                           </n-icon>
                         </template>
@@ -136,9 +136,9 @@
                   <template #label>
                     <div class="flex items-center gap-1.5">
                       <span>访问控制密码</span>
-                      <n-tooltip trigger="hover">
+                      <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
                         <template #trigger>
-                          <n-icon size="14" class="text-slate-400 cursor-help">
+                          <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
                             <Help />
                           </n-icon>
                         </template>
@@ -159,14 +159,14 @@
           </n-card>
 
           <!-- 外网代理卡片 -->
-          <n-card title="网络代理" :bordered="false" class="shadow-sm">
+          <n-card title="网络代理" :bordered="false" class="shadow-sm rounded-2xl">
             <n-form-item label="网络代理地址" path="network_proxy">
               <template #label>
                 <div class="flex items-center gap-1.5">
                   <span>网络代理地址 (HTTP / SOCKS5)</span>
-                  <n-tooltip trigger="hover">
+                  <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
                     <template #trigger>
-                      <n-icon size="14" class="text-slate-400 cursor-help">
+                      <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
                         <Help />
                       </n-icon>
                     </template>
@@ -183,12 +183,12 @@
           </n-card>
         </div>
       </n-form>
-    </template>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import {
   NCard,
@@ -210,11 +210,14 @@ import {
 import { Help, DeviceFloppy, X } from '@vicons/tabler'
 import { useConfigStore } from '../stores/config'
 import { useSystemStore } from '../stores/system'
+import { trimSdk } from '../utils/trimSdk'
+import { useIsTouchDevice } from '../utils/device'
 
 const configStore = useConfigStore()
 const systemStore = useSystemStore()
 const message = useMessage()
 const dialog = useDialog()
+const isTouch = useIsTouchDevice()
 
 const formRef = ref<FormInst | null>(null)
 
@@ -228,6 +231,21 @@ const {
   isChanged,
   isServerPortChanged
 } = storeToRefs(configStore)
+
+watch(isChanged, (changed) => {
+  if (changed) {
+    trimSdk.setExitPageTips({
+      title: '设置未保存',
+      content: '当前设置有未保存的修改，离开可能丢失这些内容。'
+    })
+  } else {
+    trimSdk.clearExitPageTips()
+  }
+}, { immediate: true })
+
+onUnmounted(() => {
+  trimSdk.clearExitPageTips()
+})
 
 // 表单输入校验规则
 const rules: FormRules = {
@@ -302,7 +320,7 @@ onMounted(async () => {
 async function executeSave() {
   const res = await configStore.saveConfig()
   if (res.success) {
-    message.success('设置保存成功')
+    message.success(res.message || '设置保存成功')
   } else {
     message.error(res.message || '保存设置失败')
   }

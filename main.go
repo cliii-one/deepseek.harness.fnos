@@ -29,18 +29,19 @@ func main() {
 	}
 
 	InitLogger(pkgVar)
-	LogInfo("服务初始化启动")
+	LogInfo("DeepSeek Harness 服务初始化启动 (DATA_LIBRARY_PATH=%s, TRIM_APPDEST=%s)", pkgVar, appdest)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		sig := <-sigCh
 		LogInfo("收到系统信号 %s，正在优雅退出", sig)
-		_ = Stop()
+		stopAndWait()
 		os.Exit(0)
 	}()
 
 	InitConfig(pkgVar)
+	InitAppEnv(pkgVar)
 	InitHarness(pkgVar, appdest)
 
 	gin.SetMode(gin.ReleaseMode)

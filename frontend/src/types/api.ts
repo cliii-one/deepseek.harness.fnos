@@ -16,19 +16,25 @@ export type RequestResult<T> =
   | { success: false; message: string; code?: number }
 
 /**
+ * 服务运行状态枚举
+ */
+export type ServiceStatus = 'stopped' | 'starting' | 'running' | 'building'
+
+/**
  * 系统运行状态模型
  */
 export interface StatusData {
   name: string
   version: string
   commit: string
-  status: 'stopped' | 'running' | 'building' | string
+  status: ServiceStatus
   uptime: string
   started_at: number
   server_port?: number
   server_time?: number
   build_time: string
   app_url: string
+  pid?: number
   last_message: string
 }
 

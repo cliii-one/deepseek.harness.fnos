@@ -1,5 +1,5 @@
 <template>
-  <n-config-provider :theme-overrides="themeOverrides">
+  <n-config-provider :theme="themeMode === 'dark' ? darkTheme : null" :theme-overrides="themeOverrides">
     <n-loading-bar-provider>
       <n-dialog-provider>
         <n-notification-provider>
@@ -17,8 +17,8 @@
                 <!-- 顶部品牌与主导航菜单 -->
                 <div class="flex flex-col gap-3 p-3">
                   <!-- 应用品牌标题卡片 -->
-                  <div class="flex items-center gap-3 px-3 py-3 rounded-2xl bg-slate-50 border border-slate-100/80">
-                    <img src="/favicon.svg" alt="logo" class="w-8 h-8 rounded-xl object-contain shrink-0" />
+                  <div class="flex items-center gap-3 px-3 py-3 rounded-2xl bg-slate-50 border border-slate-100/80 transition-all duration-200 hover:border-slate-200 hover:bg-slate-100/50">
+                    <img src="/favicon.svg" alt="logo" class="w-8 h-8 rounded-xl object-contain shrink-0 transition-transform duration-200 hover:scale-105" />
                     <div class="min-w-0 flex-1">
                       <div class="text-sm font-bold text-slate-800 leading-tight truncate">DeepSeek</div>
                       <div class="text-[11px] text-slate-400 font-medium truncate mt-0.5">
@@ -60,9 +60,11 @@
                   >
                     <!-- 全局统一宽度约束容器 -->
                     <div class="w-full max-w-6xl flex-1 flex flex-col min-h-0">
-                      <KeepAlive>
-                        <component :is="currentView" :key="tab" />
-                      </KeepAlive>
+                      <Transition name="view-fade-slide" mode="out-in">
+                        <KeepAlive>
+                          <component :is="currentView" :key="tab" />
+                        </KeepAlive>
+                      </Transition>
                     </div>
                     <n-back-top :bottom="70" :right="20" class="sm:!bottom-8 sm:!right-8" />
                   </n-layout-content>
@@ -71,24 +73,23 @@
                 <n-layout-footer
                   bordered
                   position="absolute"
-                  class="sm:hidden z-50 !bg-white/95 !backdrop-blur-md px-1 pt-1 pb-2 shadow-lg"
+                  class="sm:hidden z-50 !bg-white/95 !backdrop-blur-md px-1 pt-1 shadow-lg mobile-tabbar-footer"
                 >
                   <n-flex justify="space-around" align="center" :wrap="false" class="w-full">
                     <n-button
                       v-for="t in mobileTabs"
                       :key="t.key"
                       text
-                      v-debounce="200"
                       :type="tab === t.key ? 'primary' : 'default'"
                       @click="tab = t.key"
-                      class="flex-1 !py-1 !px-0"
+                      class="flex-1 !py-1 !px-0 transition-transform duration-150 active:scale-90"
                     >
-                      <div class="flex flex-col items-center gap-0.5">
-                        <n-icon :size="20">
+                      <div class="flex flex-col items-center gap-0.5 select-none">
+                        <n-icon :size="20" class="transition-transform duration-200" :class="tab === t.key ? 'scale-110' : 'scale-100'">
                           <component :is="t.icon" />
                         </n-icon>
                         <span
-                          class="text-[11px] leading-tight"
+                          class="text-[11px] leading-tight transition-colors duration-150"
                           :class="tab === t.key ? 'font-bold text-fnos-blue' : 'font-normal text-slate-500'"
                         >
                           {{ t.label }}
@@ -107,7 +108,7 @@
 </template>
 
 <script setup lang="ts">
-import { h, computed, onMounted, type Component } from 'vue'
+import { h, ref, computed, watch, onMounted, type Component } from 'vue'
 import {
   NConfigProvider,
   NMessageProvider,
@@ -124,6 +125,7 @@ import {
   NButton,
   NBackTop,
   NIcon,
+  darkTheme,
   type MenuOption
 } from 'naive-ui'
 import {
@@ -140,10 +142,20 @@ import SettingsView from './views/Settings.vue'
 import Workspace from './views/Workspace.vue'
 import Plugins from './views/Plugins.vue'
 import { useAppStore } from './stores/app'
+import { trimSdk } from './utils/trimSdk'
 
 const appStore = useAppStore()
+const themeMode = ref<'light' | 'dark'>('light')
 
 type TabKey = 'overview' | 'workspace' | 'logs' | 'plugins' | 'settings'
+
+const tabLabels: Record<TabKey, string> = {
+  overview: '概览 · DeepSeek Harness',
+  workspace: '工作区 · DeepSeek Harness',
+  plugins: '插件管理 · DeepSeek Harness',
+  logs: '运行日志 · DeepSeek Harness',
+  settings: '应用设置 · DeepSeek Harness'
+}
 
 const views: Record<TabKey, Component> = {
   overview: Overview,
@@ -181,18 +193,31 @@ const tab = computed<TabKey>({
   set: (v) => appStore.setTab(v)
 })
 
+watch(tab, (newTab) => {
+  trimSdk.setTitle(tabLabels[newTab] || 'DeepSeek Harness')
+}, { immediate: true })
+
 const handleMenuSelect = (key: string) => {
   tab.value = key as TabKey
 }
 
 const currentView = computed(() => views[tab.value])
 
-onMounted(() => appStore.init())
+onMounted(() => {
+  appStore.init()
+  trimSdk.initPlatformTheme((theme) => {
+    themeMode.value = theme
+    document.documentElement.dataset.theme = theme
+  })
+})
 </script>
 
 <style scoped>
 :deep(.app-content-scroll) {
-  padding: 14px 14px 68px 14px;
+  padding: 14px 14px calc(68px + env(safe-area-inset-bottom, 0px)) 14px;
+}
+.mobile-tabbar-footer {
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
 }
 @media (min-width: 640px) {
   :deep(.app-content-scroll) {

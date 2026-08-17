@@ -193,10 +193,10 @@ func parsePluginCommand(input string) (*pluginCommand, error) {
 	return cmd, nil
 }
 
-func (c *pluginCommand) argv() []string {
-	argv := []string{"dsh", "plugin", "--profile", c.Profile, string(c.Verb)}
-	argv = append(argv, c.Specs...)
-	return argv
+func (c *pluginCommand) dshArgs() []string {
+	args := []string{"plugin", "--profile", c.Profile, string(c.Verb)}
+	args = append(args, c.Specs...)
+	return args
 }
 
 func (c *pluginCommand) display() string {
@@ -240,7 +240,8 @@ type profileManifest struct {
 	Dependencies map[string]string `json:"dependencies,omitempty"`
 	Dsh          *struct {
 		Profile *struct {
-			Bundles []string `json:"bundles"`
+			Bundles  []string `json:"bundles"`
+			Disabled []string `json:"disabled,omitempty"`
 		} `json:"profile"`
 	} `json:"dsh,omitempty"`
 }
@@ -272,32 +273,50 @@ func writeProfileManifestFull(m profileManifest) error {
 	return os.WriteFile(profileManifestPath(), data, 0644)
 }
 
-// applyPluginToggle 启用=加入层列表，禁用=移除；依赖不动，重启后生效
-func applyPluginToggle(bundles []string, deps map[string]string, name string, enabled bool) ([]string, error) {
-	idx := -1
-	for i, b := range bundles {
-		if b == name {
-			idx = i
-			break
+func sliceIndex(slice []string, val string) int {
+	for i, item := range slice {
+		if item == val {
+			return i
 		}
 	}
-	inBundles := idx >= 0
+	return -1
+}
+
+func sliceContains(slice []string, val string) bool {
+	return sliceIndex(slice, val) >= 0
+}
+
+func sliceRemove(slice []string, val string) []string {
+	idx := sliceIndex(slice, val)
+	if idx < 0 {
+		return slice
+	}
+	out := make([]string, 0, len(slice)-1)
+	out = append(out, slice[:idx]...)
+	out = append(out, slice[idx+1:]...)
+	return out
+}
+
+func sliceAddUnique(slice []string, val string) []string {
+	if sliceContains(slice, val) {
+		return slice
+	}
+	return append(slice, val)
+}
+
+// applyPluginToggle 启用=加入层列表并从禁用列表移除，禁用=从层列表移除并加入禁用列表；依赖不动，重启后生效
+func applyPluginToggle(bundles, disabled []string, deps map[string]string, name string, enabled bool) ([]string, []string, error) {
 	if enabled {
 		if _, ok := deps[name]; !ok {
-			return nil, fmt.Errorf("插件 %s 未安装（不在依赖中），无法启用", name)
+			return nil, nil, fmt.Errorf("插件 %s 未安装（不在依赖中），无法启用", name)
 		}
-		if !inBundles {
-			return append(bundles, name), nil
-		}
-		return bundles, nil
+		bundles = sliceAddUnique(bundles, name)
+		disabled = sliceRemove(disabled, name)
+		return bundles, disabled, nil
 	}
-	if inBundles {
-		out := make([]string, 0, len(bundles)-1)
-		out = append(out, bundles[:idx]...)
-		out = append(out, bundles[idx+1:]...)
-		return out, nil
-	}
-	return bundles, nil
+	bundles = sliceRemove(bundles, name)
+	disabled = sliceAddUnique(disabled, name)
+	return bundles, disabled, nil
 }
 
 func togglePlugin(name string, enabled bool) (string, error) {
@@ -311,11 +330,12 @@ func togglePlugin(name string, enabled bool) (string, error) {
 	if m.Dsh == nil || m.Dsh.Profile == nil {
 		return "", fmt.Errorf("profile manifest 缺少 dsh.profile 配置")
 	}
-	bundles, err := applyPluginToggle(m.Dsh.Profile.Bundles, m.Dependencies, name, enabled)
+	bundles, disabled, err := applyPluginToggle(m.Dsh.Profile.Bundles, m.Dsh.Profile.Disabled, m.Dependencies, name, enabled)
 	if err != nil {
 		return "", err
 	}
 	m.Dsh.Profile.Bundles = bundles
+	m.Dsh.Profile.Disabled = disabled
 	if err := writeProfileManifestFull(m); err != nil {
 		return "", fmt.Errorf("写入 profile manifest 失败: %s", err)
 	}
@@ -323,6 +343,54 @@ func togglePlugin(name string, enabled bool) (string, error) {
 		return "插件已启用，重启服务后生效", nil
 	}
 	return "插件已禁用，重启服务后生效", nil
+}
+
+// enforcePluginPreferences 在 CLI 命令执行后收敛插件状态：清理已卸载包的 disabled 记录，并剔除被上游误加入 bundles 的已禁用插件
+func enforcePluginPreferences(reEnablingSpecs ...string) error {
+	m, err := readProfileManifestFull()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if m.Dsh == nil || m.Dsh.Profile == nil {
+		return nil
+	}
+
+	// 1. 若指定了显式重新添加的包（如 add 操作），先从 disabled 列表中移除
+	for _, spec := range reEnablingSpecs {
+		key := normalizePluginKey(spec)
+		m.Dsh.Profile.Disabled = sliceRemove(m.Dsh.Profile.Disabled, key)
+		m.Dsh.Profile.Disabled = sliceRemove(m.Dsh.Profile.Disabled, spec)
+	}
+
+	// 2. 清理已不存在于 dependencies 的失效 disabled 项（已被 remove 卸载）
+	disabledSet := make(map[string]bool)
+	var validDisabled []string
+	for _, d := range m.Dsh.Profile.Disabled {
+		if _, ok := m.Dependencies[d]; ok {
+			if !disabledSet[d] {
+				disabledSet[d] = true
+				validDisabled = append(validDisabled, d)
+			}
+		}
+	}
+	m.Dsh.Profile.Disabled = validDisabled
+
+	// 3. 从 bundles 中剔除被上游 reconcilePlugins 重新塞入但用户已禁用的插件
+	if len(disabledSet) > 0 {
+		var newBundles []string
+		for _, b := range m.Dsh.Profile.Bundles {
+			if disabledSet[b] {
+				continue
+			}
+			newBundles = append(newBundles, b)
+		}
+		m.Dsh.Profile.Bundles = newBundles
+	}
+
+	return writeProfileManifestFull(m)
 }
 
 func installedPluginVersion(name string) string {
@@ -415,6 +483,9 @@ func setPluginRunning() error {
 	if state.Status() == StatusBuilding {
 		return fmt.Errorf("正在构建中，请稍候再试")
 	}
+	if state.Status() == StatusStarting {
+		return fmt.Errorf("服务正在启动中，请稍候再试")
+	}
 	if _, err := os.Stat(filepath.Join(srcDir, "node_modules")); err != nil {
 		return fmt.Errorf("依赖未安装，请先点击【强制重建】")
 	}
@@ -461,21 +532,6 @@ func notifyPlugin() {
 		default:
 		}
 	}
-}
-
-// pluginEnv 把 pnpm 可执行目录加进 PATH（dsh plugin 内部以 spawnSync("pnpm") 转发）
-func pluginEnv() []string {
-	env := buildEnv()
-	pnpmDir := filepath.Join(pkgVarDir, "pnpm-env", "node_modules", ".bin")
-	cur := ""
-	prefix := "PATH="
-	for _, e := range env {
-		if strings.HasPrefix(e, prefix) {
-			cur = strings.TrimPrefix(e, prefix)
-			break
-		}
-	}
-	return appendOrReplace(env, "PATH", pnpmDir+":"+cur)
 }
 
 // tailWriter 保留最近 max 字节输出，供失败时回显原因（并发写，需加锁）
@@ -537,16 +593,16 @@ func shortPluginFailReason(err error) string {
 	return msg
 }
 
-func runPluginSubprocess(argv []string) error {
+func runPluginSubprocess(cmdArgs []string) error {
 	tail := newTailWriter(800)
 	outWriter := NewLogWriterInfo()
 	errWriter := NewLogWriterWarn()
 	defer outWriter.Flush()
 	defer errWriter.Flush()
 
-	cmd := exec.Command(pnpmBin(), argv...)
+	bin, args := dshCliCmd(cmdArgs...)
+	cmd := exec.Command(bin, args...)
 	cmd.Dir = srcDir
-	cmd.Env = pluginEnv()
 	cmd.Stdout = io.MultiWriter(outWriter, tail)
 	cmd.Stderr = io.MultiWriter(errWriter, tail)
 	err := cmd.Run()
@@ -556,15 +612,15 @@ func runPluginSubprocess(argv []string) error {
 	return nil
 }
 
-func runPluginSync(argv []string) (string, error) {
+func runPluginSync(cmdArgs []string) (string, error) {
 	outWriter := NewLogWriterInfo()
 	errWriter := NewLogWriterWarn()
 	defer outWriter.Flush()
 	defer errWriter.Flush()
 
-	cmd := exec.Command(pnpmBin(), argv...)
+	bin, args := dshCliCmd(cmdArgs...)
+	cmd := exec.Command(bin, args...)
 	cmd.Dir = srcDir
-	cmd.Env = pluginEnv()
 	var buf bytes.Buffer
 	cmd.Stdout = io.MultiWriter(outWriter, &buf)
 	cmd.Stderr = io.MultiWriter(errWriter, &buf)
@@ -594,9 +650,9 @@ func runPluginOpWithAutoAllow(cmd *pluginCommand, doneMsg string) (string, error
 	var out string
 	var runErr error
 	if cmd.Verb == pluginList || cmd.Verb == pluginWhy {
-		out, runErr = runPluginSync(cmd.argv())
+		out, runErr = runPluginSync(cmd.dshArgs())
 	} else {
-		runErr = runPluginSubprocess(cmd.argv())
+		runErr = runPluginSubprocess(cmd.dshArgs())
 	}
 	if runErr == nil {
 		if out = strings.TrimSpace(out); out != "" {
@@ -605,10 +661,20 @@ func runPluginOpWithAutoAllow(cmd *pluginCommand, doneMsg string) (string, error
 		return doneMsg, nil
 	}
 
-	// 仅修改型安装类操作且是构建脚本拦截时自动放行
+	// 仅修改型安装类操作支持自动重试
 	if cmd.Verb != pluginAdd && cmd.Verb != pluginUpdate && cmd.Verb != pluginInstall {
 		return "", runErr
 	}
+
+	// 处理 store 路径变更引起的冲突，自动清理旧依赖缓存并重试
+	if strings.Contains(runErr.Error(), "ERR_PNPM_UNEXPECTED_STORE") {
+		_ = os.RemoveAll(filepath.Join(pluginProfileDir(), "node_modules"))
+		LogWarning("检测到依赖存储位置变更，已自动清理旧缓存并重新执行: %s", cmd.display())
+		if runErr = runPluginSubprocess(cmd.dshArgs()); runErr == nil {
+			return doneMsg, nil
+		}
+	}
+
 	pkgs := parseBlockedPackages(runErr.Error())
 	if len(pkgs) == 0 {
 		return "", runErr
@@ -618,7 +684,7 @@ func runPluginOpWithAutoAllow(cmd *pluginCommand, doneMsg string) (string, error
 		return "", fmt.Errorf("%s\n（自动配置 allowBuilds 失败: %s）", runErr.Error(), err)
 	}
 	LogWarning("构建脚本被拦截 [%s]，已自动放行并重新执行: %s", strings.Join(pkgs, ", "), cmd.display())
-	if runErr = runPluginSubprocess(cmd.argv()); runErr != nil {
+	if runErr = runPluginSubprocess(cmd.dshArgs()); runErr != nil {
 		return "", runErr
 	}
 	return doneMsg + "（已自动放行构建脚本: " + strings.Join(pkgs, ", ") + "）", nil
@@ -626,12 +692,24 @@ func runPluginOpWithAutoAllow(cmd *pluginCommand, doneMsg string) (string, error
 
 // launchPluginOp 在 goroutine 中执行插件操作（调用方需先 setPluginRunning 成功）
 func launchPluginOp(cmd *pluginCommand, doneMsg string) {
+	LogInfo("开始执行插件管理操作: verb=%s, specs=%v, profile=%s", cmd.Verb, cmd.Specs, cmd.Profile)
 	go func() {
 		msg, runErr := runPluginOpWithAutoAllow(cmd, doneMsg)
 		if runErr != nil {
 			LogWarning("插件执行失败: %s", shortPluginFailReason(runErr))
 			setPluginDone(false, runErr.Error())
 			return
+		}
+		// 成功后根据用户意图收敛 profile 状态，防止上游 reconcilePlugins 冲掉禁用设置
+		var reEnable []string
+		if cmd.Verb == pluginAdd {
+			reEnable = append(reEnable, cmd.Specs...)
+			if cmd.AllowKey != "" {
+				reEnable = append(reEnable, cmd.AllowKey)
+			}
+		}
+		if err := enforcePluginPreferences(reEnable...); err != nil {
+			LogWarning("校准插件状态失败: %s", err)
 		}
 		// 卸载成功后清理该插件相关的 allowBuilds 条目（best-effort）
 		if cmd.Verb == pluginRemove && pluginAllowKey(cmd) != "" {
@@ -893,18 +971,25 @@ func handlePluginRun(c *gin.Context) {
 	LogInfo("执行插件指令: %s", cmd.display())
 
 	doneMsg := "操作完成"
+	var startMsg string
 	switch cmd.Verb {
 	case pluginAdd:
 		doneMsg = "安装完成，重启服务后生效"
+		startMsg = "已开始执行插件安装"
 	case pluginRemove:
 		doneMsg = "卸载完成，重启服务后生效"
+		startMsg = fmt.Sprintf("已开始卸载插件「%s」", strings.Join(cmd.Specs, " "))
 	case pluginUpdate:
 		doneMsg = "更新完成，重启服务后生效"
+		startMsg = fmt.Sprintf("已开始更新插件「%s」", strings.Join(cmd.Specs, " "))
 	case pluginInstall:
 		doneMsg = "安装完成，重启服务后生效"
+		startMsg = "已开始执行插件安装"
+	default:
+		startMsg = "已开始执行插件指令"
 	}
 	launchPluginOp(cmd, doneMsg)
-	OK(c, gin.H{"command": cmd.display()})
+	OKMsg(c, startMsg, gin.H{"command": cmd.display()})
 }
 
 func handlePluginToggle(c *gin.Context) {
@@ -940,7 +1025,11 @@ func handlePluginToggle(c *gin.Context) {
 		LogInfo("切换插件状态完成: %s", msg)
 		setPluginDone(true, msg)
 	}()
-	OK(c, gin.H{"name": req.Name, "enabled": req.Enabled})
+	toggleMsg := fmt.Sprintf("已启用插件「%s」", req.Name)
+	if !req.Enabled {
+		toggleMsg = fmt.Sprintf("已禁用插件「%s」", req.Name)
+	}
+	OKMsg(c, toggleMsg, gin.H{"name": req.Name, "enabled": req.Enabled})
 }
 
 func handlePluginUpload(c *gin.Context) {
@@ -1026,5 +1115,5 @@ func handlePluginUpload(c *gin.Context) {
 	cmd := &pluginCommand{Verb: pluginAdd, Profile: "web", Specs: []string{"file:" + pkgDir}, AllowKey: name}
 	LogInfo("安装本地插件包: %s", name)
 	launchPluginOp(cmd, fmt.Sprintf("「%s」安装完成，重启服务后生效", name))
-	OK(c, gin.H{"command": cmd.display(), "name": name, "dir": pkgDir})
+	OKMsg(c, fmt.Sprintf("已开始安装离线插件包「%s」", name), gin.H{"command": cmd.display(), "name": name, "dir": pkgDir})
 }

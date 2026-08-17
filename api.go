@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -83,43 +84,25 @@ type ApiResponse struct {
 	Timestamp int64  `json:"timestamp,omitempty"`
 }
 
-// ResultOK 成功响应：HTTP 200 + code 0 + 数据
-func ResultOK(c *gin.Context, data any) {
-	c.JSON(http.StatusOK, ApiResponse{
-		Code:      0,
-		Message:   "success",
-		Data:      data,
-		Timestamp: time.Now().UnixMilli(),
-	})
-}
-
-// ResultSuccess 成功响应携带自定义信息
-func ResultSuccess(c *gin.Context, msg string, data any) {
-	c.JSON(http.StatusOK, ApiResponse{
-		Code:      0,
-		Message:   msg,
-		Data:      data,
-		Timestamp: time.Now().UnixMilli(),
-	})
-}
-
-// ResultFail 失败响应：HTTP 状态码 + 业务错误码 + 错误信息
-func ResultFail(c *gin.Context, httpStatus int, code int, msg string) {
-	c.JSON(httpStatus, ApiResponse{
-		Code:      code,
-		Message:   msg,
-		Timestamp: time.Now().UnixMilli(),
-	})
-}
-
-// OK 快捷成功响应
 func OK(c *gin.Context, data any) {
-	ResultOK(c, data)
+	OKMsg(c, "success", data)
 }
 
-// Fail 快捷失败响应
+func OKMsg(c *gin.Context, msg string, data any) {
+	c.JSON(http.StatusOK, ApiResponse{
+		Code:      0,
+		Message:   msg,
+		Data:      data,
+		Timestamp: time.Now().UnixMilli(),
+	})
+}
+
 func Fail(c *gin.Context, status int, msg string) {
-	ResultFail(c, status, status, msg)
+	c.JSON(status, ApiResponse{
+		Code:      status,
+		Message:   msg,
+		Timestamp: time.Now().UnixMilli(),
+	})
 }
 
 func statusPayload() gin.H {
@@ -137,17 +120,47 @@ func statusPayload() gin.H {
 		serverPort = 2298
 	}
 
+	var pidVal any
+	if (status == StatusRunning || status == StatusStarting) {
+		if data, err := os.ReadFile(pidFilePath()); err == nil {
+			if p, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && p > 0 && isProcessAlive(p) {
+				pidVal = p
+			}
+		}
+	}
+
+	var verVal any
+	if version != "" {
+		verVal = version
+	}
+
+	var commitVal any
+	if commit != "" {
+		commitVal = commit
+	}
+
+	var buildTimeVal any
+	if buildTime != "" {
+		buildTimeVal = buildTime
+	}
+
+	var uptimeVal any
+	if uptime != "" {
+		uptimeVal = uptime
+	}
+
 	return gin.H{
 		"name":         "DeepSeek Harness",
-		"version":      version,
-		"commit":       commit,
+		"version":      verVal,
+		"commit":       commitVal,
 		"status":       status,
-		"uptime":       uptime,
+		"uptime":       uptimeVal,
 		"started_at":   startedAt,
 		"server_port":  serverPort,
 		"server_time":  time.Now().Unix(),
-		"build_time":   buildTime,
+		"build_time":   buildTimeVal,
 		"app_url":      appURL,
+		"pid":          pidVal,
 		"last_message": lastMsg,
 	}
 }
@@ -255,12 +268,19 @@ func handleAction(c *gin.Context) {
 			Fail(c, http.StatusConflict, "正在构建中，请稍候再试")
 			return
 		}
+		if state.Status() == StatusStarting && req.Action == "start" {
+			Fail(c, http.StatusConflict, "服务正在启动中，请稍候")
+			return
+		}
 		var err error
 		switch req.Action {
 		case "start":
 			err = Start()
 		case "stop":
 			err = Stop()
+			if err == nil {
+				SetLastRunState(StatusStopped)
+			}
 		case "restart":
 			err = Restart()
 		}
@@ -283,7 +303,21 @@ func handleAction(c *gin.Context) {
 		return
 	}
 
-	OK(c, statusPayload())
+	var msg string
+	switch req.Action {
+	case "start":
+		msg = "启动指令已发送，正在等待服务就绪…"
+	case "stop":
+		msg = "服务已停止"
+	case "restart":
+		msg = "重启指令已发送，正在等待服务就绪…"
+	case "upgrade":
+		msg = "开始拉取远程更新并构建…"
+	case "rebuild":
+		msg = "开始强制重建源码…"
+	}
+
+	OKMsg(c, msg, statusPayload())
 }
 
 // actionErrStatus 将动作前置错误映射为合适的 HTTP 状态码
@@ -292,7 +326,7 @@ func actionErrStatus(err error) int {
 	switch {
 	case strings.Contains(msg, "源码不存在"):
 		return http.StatusNotFound
-	case strings.Contains(msg, "构建中"), strings.Contains(msg, "运行中"), strings.Contains(msg, "依赖未安装"):
+	case strings.Contains(msg, "构建中"), strings.Contains(msg, "启动中"), strings.Contains(msg, "运行中"), strings.Contains(msg, "依赖未安装"):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
@@ -304,8 +338,81 @@ type LogPayload struct {
 	Content string   `json:"content"`
 }
 
+// readLastNLines 高效获取日志文件末尾的最新 N 行
+func readLastNLines(path string, maxLines int) ([]string, string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, "", err
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		return nil, "", err
+	}
+	size := stat.Size()
+	if size == 0 {
+		return []string{}, "", nil
+	}
+
+	// 若文件较小（<= 512KB），直接全量读取并截取后 N 行
+	if size <= 512*1024 {
+		data, err := io.ReadAll(file)
+		if err != nil {
+			return nil, "", err
+		}
+		rawLines := strings.Split(string(data), "\n")
+		var lines []string
+		for _, l := range rawLines {
+			if l != "" {
+				lines = append(lines, l+"\n")
+			}
+		}
+		if len(lines) > maxLines {
+			lines = lines[len(lines)-maxLines:]
+		}
+		return lines, strings.Join(lines, ""), nil
+	}
+
+	// 若文件较大，从尾部逆向读取最多 256KB
+	readSize := int64(256 * 1024)
+	if readSize > size {
+		readSize = size
+	}
+	buf := make([]byte, readSize)
+	_, err = file.ReadAt(buf, size-readSize)
+	if err != nil && err != io.EOF {
+		return nil, "", err
+	}
+
+	raw := string(buf)
+	if readSize < size {
+		// 丢弃第一条可能截断的不完整半行
+		if idx := strings.IndexByte(raw, '\n'); idx >= 0 {
+			raw = raw[idx+1:]
+		}
+	}
+
+	rawLines := strings.Split(raw, "\n")
+	var lines []string
+	for _, l := range rawLines {
+		if l != "" {
+			lines = append(lines, l+"\n")
+		}
+	}
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return lines, strings.Join(lines, ""), nil
+}
+
 func handleGetLogs(c *gin.Context) {
-	data, err := os.ReadFile(logFilePath())
+	limitStr := c.DefaultQuery("limit", "150")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 {
+		limit = 150
+	}
+	lines, content, err := readLastNLines(logFilePath(), limit)
 	if err != nil {
 		if os.IsNotExist(err) {
 			OK(c, LogPayload{Lines: []string{}, Content: ""})
@@ -314,29 +421,15 @@ func handleGetLogs(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "读取日志失败: "+err.Error())
 		return
 	}
-	content := string(data)
-	var lines []string
-	if len(content) > 0 {
-		rawLines := strings.Split(content, "\n")
-		for _, l := range rawLines {
-			if l != "" {
-				lines = append(lines, l+"\n")
-			}
-		}
-	}
-	if lines == nil {
-		lines = []string{}
-	}
 	OK(c, LogPayload{Lines: lines, Content: content})
 }
 
 func handleDeleteLogs(c *gin.Context) {
-	err := os.Truncate(logFilePath(), 0)
-	if err != nil && !os.IsNotExist(err) {
+	if err := ClearLogs(); err != nil {
 		Fail(c, http.StatusInternalServerError, "清空日志失败: "+err.Error())
 		return
 	}
-	OK(c, true)
+	OKMsg(c, "运行日志已清空", true)
 }
 
 func handleDownloadLogs(c *gin.Context) {
@@ -414,7 +507,7 @@ func handleSaveConfig(c *gin.Context) {
 	}
 
 	state.Poke()
-	OK(c, cfg)
+	OKMsg(c, "应用设置保存成功", cfg)
 }
 
 func logFilePath() string {
