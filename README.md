@@ -17,8 +17,8 @@
 
 ## 预览
 
-<img width="1787" height="1113" alt="1" src="https://github.com/user-attachments/assets/e6b474d3-1fbe-4697-9048-027d4c40aa81" />
-<img width="1783" height="1117" alt="4" src="https://github.com/user-attachments/assets/1c3ccb09-a39c-40ba-b5b3-358fe9bdc7d2" />
+<img width="1777" height="1081" alt="87995bf50b86bee1d0ac74515d81ac31" src="https://github.com/user-attachments/assets/0260d94d-5049-4051-b1a9-4234dc7b058d" />
+<img width="1779" height="1085" alt="57af01f2a0d7f43b29d91750f6227f1c" src="https://github.com/user-attachments/assets/a32a1286-b5a2-4652-bec9-0f4e267ff6e3" />
 
 ---
 
