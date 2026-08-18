@@ -46,47 +46,6 @@
                 Build: {{ statusData.build_time || '-' }}
               </span>
             </div>
-
-            <!-- 更新检查：只读比对远程 commit，发现新版本后可一键复用「拉取更新」 -->
-            <div class="flex items-center gap-2 flex-wrap pt-0.5">
-              <n-button
-                size="tiny"
-                secondary
-                :loading="updateState === 'checking'"
-                :disabled="updateState === 'checking' || isBuilding || isStarting || isActionLocked"
-                class="!h-6 !px-2.5 text-xs"
-                @click="checkUpdate"
-              >
-                <template #icon v-if="updateState !== 'checking'">
-                  <n-icon :size="13"><Refresh /></n-icon>
-                </template>
-                检查更新
-              </n-button>
-
-              <n-tag v-if="updateState === 'latest'" type="success" size="small" round :bordered="false" class="text-xs">
-                ✓ 已是最新 ({{ shortCommit(updateInfo?.local_commit) }})
-              </n-tag>
-              <template v-else-if="updateState === 'update'">
-                <n-tag type="warning" size="small" round :bordered="false" class="text-xs font-medium">
-                  发现新版本 {{ shortCommit(updateInfo?.local_commit) }} → {{ shortCommit(updateInfo?.remote_commit) }}
-                </n-tag>
-                <n-button
-                  size="tiny"
-                  type="warning"
-                  :disabled="isBuilding || isStarting || isActionLocked"
-                  class="!h-6 !px-2.5 text-xs"
-                  @click="handleAction('upgrade')"
-                >
-                  立即更新
-                </n-button>
-              </template>
-              <n-tag v-else-if="updateState === 'offline'" size="small" round :bordered="false" class="text-xs text-slate-500 dark:text-slate-400">
-                离线包安装，更新请升级应用包
-              </n-tag>
-              <n-tag v-else-if="updateState === 'error'" type="error" size="small" round :bordered="false" class="text-xs">
-                检查失败，请重试
-              </n-tag>
-            </div>
           </div>
 
           <n-button type="primary" size="large" :disabled="!isRunning" @click="goWebUI"
@@ -202,7 +161,7 @@
                   :bordered="false"
                   class="cursor-pointer text-center interactive-card select-none !p-2 sm:!p-4 shadow-sm group rounded-2xl !h-full"
                   :class="{ 'opacity-50 !cursor-not-allowed !transform-none': a.disabled && !a.loading }"
-                  @click="!a.disabled && !a.loading && handleAction(a.action)"
+                  @click="a.action === 'upgrade' ? (a.disabled || a.loading ? undefined : handleCheckAndUpdate()) : (!a.disabled && !a.loading && handleAction(a.action))"
                 >
                   <div class="flex flex-col items-center justify-center gap-2.5 py-3">
                     <div
@@ -261,7 +220,6 @@ import {
   PlayerPlay,
   PlayerStop,
   Refresh,
-  Download,
   Tools
 } from '@vicons/tabler'
 import { useSystemStore } from '../stores/system'
@@ -269,7 +227,6 @@ import { useAppStore } from '../stores/app'
 import { withAsyncLock } from '../utils/debounce'
 import { useIsTouchDevice } from '../utils/device'
 import { updateApi } from '../api'
-import type { UpdateCheckResult } from '../types/api'
 
 const systemStore = useSystemStore()
 const appStore = useAppStore()
@@ -294,36 +251,34 @@ function goWebUI() {
   appStore.setTab('webui')
 }
 
-// 更新检查状态：idle 未检查 / checking 检查中 / latest 已是最新 / update 有新版本 / offline 离线包 / error 失败
-type UpdateState = 'idle' | 'checking' | 'latest' | 'update' | 'offline' | 'error'
-const updateState = ref<UpdateState>('idle')
-const updateInfo = ref<UpdateCheckResult | null>(null)
+// 检查更新是否进行中（驱动卡片 loading，与后续 upgrade 动作串行）
+const checkingUpgrade = ref(false)
 
-function shortCommit(c?: string): string {
-  return formatShortCommit(c || '')
-}
-
-// 检查 DSH 服务是否有新版本：纯只读（ls-remote 比对），不触发拉取或构建
-async function checkUpdate() {
-  if (updateState.value === 'checking' || isBuilding.value || isStarting.value || isActionLocked.value) {
-    return
+// 检查更新：先只读比对远程 commit，发现新版本则自动走「拉取更新」流程（gitPull+构建+重启）
+const handleCheckAndUpdate = withAsyncLock(async () => {
+  if (isBuilding.value || isStarting.value || isActionLocked.value) return
+  checkingUpgrade.value = true
+  try {
+    const res = await updateApi.check()
+    if (!res.success || !res.data) {
+      message.error('检查更新失败，请重试')
+      return
+    }
+    const info = res.data
+    if (!info.git_ready || info.mode === 'offline') {
+      message.warning('当前为离线包安装，更新请升级应用包')
+      return
+    }
+    if (!info.has_update) {
+      message.success(`已是最新版本 (${formatShortCommit(info.local_commit)})`)
+      return
+    }
+    message.info(`发现新版本 ${formatShortCommit(info.local_commit)} → ${formatShortCommit(info.remote_commit)}，开始更新…`)
+    await handleAction('upgrade')
+  } finally {
+    checkingUpgrade.value = false
   }
-  updateState.value = 'checking'
-  const res = await updateApi.check()
-  if (!res.success || !res.data) {
-    updateState.value = 'error'
-    return
-  }
-  updateInfo.value = res.data
-  const info = res.data
-  if (!info.git_ready || info.mode === 'offline') {
-    updateState.value = 'offline'
-  } else if (info.has_update) {
-    updateState.value = 'update'
-  } else {
-    updateState.value = 'latest'
-  }
-}
+})
 
 function formatShortCommit(c?: string): string {
   if (!c || c === '-') return '-'
@@ -380,13 +335,13 @@ const actionCards = computed<ActionCard[]>(() => [
   },
   {
     action: 'upgrade',
-    icon: Download,
-    label: '拉取更新',
-    desc: '检查远程代码更新，检测到新版本时自动同步依赖并构建',
+    icon: Refresh,
+    label: '检查更新',
+    desc: '先检查远程是否有新版本，发现更新后自动拉取并构建',
     iconBg: 'bg-blue-50 dark:bg-blue-950/30 group-hover:bg-blue-100 dark:group-hover:bg-blue-950/50',
     iconColor: 'text-fnos-blue dark:text-blue-400',
     disabled: isActionLocked.value && activeAction.value !== 'upgrade',
-    loading: activeAction.value === 'upgrade' || (isBuilding.value && activeAction.value !== 'rebuild')
+    loading: checkingUpgrade.value || activeAction.value === 'upgrade' || (isBuilding.value && activeAction.value !== 'rebuild')
   },
   {
     action: 'rebuild',
