@@ -6,7 +6,8 @@ import type {
   PluginStatus,
   PreviewResult,
   LogData,
-  SettingsConfig
+  SettingsConfig,
+  UpdateCheckResult
 } from '../types/api'
 
 /**
@@ -53,4 +54,11 @@ export const logApi = {
  */
 export const configApi = {
   getConfig: () => http.get<SettingsConfig>('config')
+}
+
+/**
+ * 更新检查 API（只读：比对本地与远程 commit，不触发拉取/构建）
+ */
+export const updateApi = {
+  check: () => http.get<UpdateCheckResult>('update/check')
 }

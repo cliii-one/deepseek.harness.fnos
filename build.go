@@ -130,6 +130,20 @@ func gitHead() string {
 	return strings.TrimSpace(string(out))
 }
 
+// gitRemoteHead 查询远程仓库 main 分支最新提交 hash（只读，不修改本地仓库、不拉取内容）
+func gitRemoteHead() string {
+	cmd := gitCmd("ls-remote", repoURL, "refs/heads/main")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
 func extractTarGz(tarPath, dst string) error {
 	if err := os.MkdirAll(dst, 0755); err != nil {
 		return err

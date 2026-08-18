@@ -46,6 +46,47 @@
                 Build: {{ statusData.build_time || '-' }}
               </span>
             </div>
+
+            <!-- 更新检查：只读比对远程 commit，发现新版本后可一键复用「拉取更新」 -->
+            <div class="flex items-center gap-2 flex-wrap pt-0.5">
+              <n-button
+                size="tiny"
+                secondary
+                :loading="updateState === 'checking'"
+                :disabled="updateState === 'checking' || isBuilding || isStarting || isActionLocked"
+                class="!h-6 !px-2.5 text-xs"
+                @click="checkUpdate"
+              >
+                <template #icon v-if="updateState !== 'checking'">
+                  <n-icon :size="13"><Refresh /></n-icon>
+                </template>
+                检查更新
+              </n-button>
+
+              <n-tag v-if="updateState === 'latest'" type="success" size="small" round :bordered="false" class="text-xs">
+                ✓ 已是最新 ({{ shortCommit(updateInfo?.local_commit) }})
+              </n-tag>
+              <template v-else-if="updateState === 'update'">
+                <n-tag type="warning" size="small" round :bordered="false" class="text-xs font-medium">
+                  发现新版本 {{ shortCommit(updateInfo?.local_commit) }} → {{ shortCommit(updateInfo?.remote_commit) }}
+                </n-tag>
+                <n-button
+                  size="tiny"
+                  type="warning"
+                  :disabled="isBuilding || isStarting || isActionLocked"
+                  class="!h-6 !px-2.5 text-xs"
+                  @click="handleAction('upgrade')"
+                >
+                  立即更新
+                </n-button>
+              </template>
+              <n-tag v-else-if="updateState === 'offline'" size="small" round :bordered="false" class="text-xs text-slate-500 dark:text-slate-400">
+                离线包安装，更新请升级应用包
+              </n-tag>
+              <n-tag v-else-if="updateState === 'error'" type="error" size="small" round :bordered="false" class="text-xs">
+                检查失败，请重试
+              </n-tag>
+            </div>
           </div>
 
           <n-button type="primary" size="large" :disabled="!isRunning" @click="goWebUI"
@@ -197,7 +238,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, type Component } from 'vue'
+import { computed, ref, type Component } from 'vue'
 import { storeToRefs } from 'pinia'
 import {
   NPageHeader,
@@ -227,6 +268,8 @@ import { useSystemStore } from '../stores/system'
 import { useAppStore } from '../stores/app'
 import { withAsyncLock } from '../utils/debounce'
 import { useIsTouchDevice } from '../utils/device'
+import { updateApi } from '../api'
+import type { UpdateCheckResult } from '../types/api'
 
 const systemStore = useSystemStore()
 const appStore = useAppStore()
@@ -249,6 +292,37 @@ const {
 // 进入 Harness：切换到内嵌 WebUI 视图（应用内沉浸式，不再新开浏览器标签）
 function goWebUI() {
   appStore.setTab('webui')
+}
+
+// 更新检查状态：idle 未检查 / checking 检查中 / latest 已是最新 / update 有新版本 / offline 离线包 / error 失败
+type UpdateState = 'idle' | 'checking' | 'latest' | 'update' | 'offline' | 'error'
+const updateState = ref<UpdateState>('idle')
+const updateInfo = ref<UpdateCheckResult | null>(null)
+
+function shortCommit(c?: string): string {
+  return formatShortCommit(c || '')
+}
+
+// 检查 DSH 服务是否有新版本：纯只读（ls-remote 比对），不触发拉取或构建
+async function checkUpdate() {
+  if (updateState.value === 'checking' || isBuilding.value || isStarting.value || isActionLocked.value) {
+    return
+  }
+  updateState.value = 'checking'
+  const res = await updateApi.check()
+  if (!res.success || !res.data) {
+    updateState.value = 'error'
+    return
+  }
+  updateInfo.value = res.data
+  const info = res.data
+  if (!info.git_ready || info.mode === 'offline') {
+    updateState.value = 'offline'
+  } else if (info.has_update) {
+    updateState.value = 'update'
+  } else {
+    updateState.value = 'latest'
+  }
 }
 
 function formatShortCommit(c?: string): string {

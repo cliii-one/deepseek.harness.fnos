@@ -142,6 +142,17 @@ export interface SettingsConfig {
 }
 
 /**
+ * 更新检查结果（只读；mode=offline 表示离线包安装，不做 git 比对）
+ */
+export interface UpdateCheckResult {
+  git_ready: boolean
+  mode: 'clone' | 'offline'
+  local_commit: string
+  remote_commit: string
+  has_update: boolean
+}
+
+/**
  * WebSocket 信封消息结构
  */
 export interface WSEnvelope<T = unknown> {

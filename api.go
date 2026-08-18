@@ -34,6 +34,7 @@ func InitRoutes(r *gin.Engine) {
 		api.DELETE("/logs", handleDeleteLogs)
 		api.GET("/logs/download", handleDownloadLogs)
 		api.GET("/config", handleGetConfig)
+		api.GET("/update/check", handleCheckUpdate)
 		api.GET("/workspace/list", handleGetWorkspaces)
 		api.GET("/plugins", handleListPlugins)
 		api.GET("/plugins/status", handlePluginStatus)
@@ -446,6 +447,36 @@ func handleDownloadLogs(c *gin.Context) {
 
 func handleGetConfig(c *gin.Context) {
 	OK(c, GetConfig())
+}
+
+// handleCheckUpdate 检查 DSH 服务是否有新版本。
+// 纯只读：git_ready=false 为离线包安装（无 .git），不做 git 比对；
+// clone 安装则对比本地 HEAD 与远程 main HEAD，判断是否存在新版本。
+func handleCheckUpdate(c *gin.Context) {
+	type checkResult struct {
+		GitReady     bool   `json:"git_ready"`
+		Mode         string `json:"mode"`
+		LocalCommit  string `json:"local_commit"`
+		RemoteCommit string `json:"remote_commit"`
+		HasUpdate    bool   `json:"has_update"`
+	}
+
+	res := checkResult{Mode: "offline"}
+
+	// 离线 tar 源码包安装目录不含 .git：更新需升级应用包，不做 git 比对
+	if _, err := os.Stat(filepath.Join(srcDir, ".git")); err != nil {
+		OK(c, res)
+		return
+	}
+
+	res.GitReady = true
+	res.Mode = "clone"
+	res.LocalCommit = gitHead()
+	res.RemoteCommit = gitRemoteHead()
+	if res.LocalCommit != "" && res.RemoteCommit != "" && res.LocalCommit != res.RemoteCommit {
+		res.HasUpdate = true
+	}
+	OK(c, res)
 }
 
 func logFilePath() string {
