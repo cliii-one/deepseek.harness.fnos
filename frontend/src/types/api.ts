@@ -128,14 +128,12 @@ export interface LogData {
 }
 
 /**
- * 应用设置配置模型
+ * 应用配置模型（与 Go 端 Config 对齐；访问方式固定飞牛统一网关，无 access_mode 等字段）
  */
 export interface SettingsConfig {
   server_port: number
   proxy_port: number
   network_proxy: string
-  access_mode?: 'fngateway' | 'port' | 'custom'
-  reverse_proxy_url: string
   access_password: string
   data_library_path?: string
   version?: string

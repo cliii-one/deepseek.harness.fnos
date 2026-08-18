@@ -579,20 +579,6 @@ func proxyErrMessage() string {
 	}
 }
 
-// restartReverseProxy 按最新配置重启反向代理
-func restartReverseProxy() {
-	proxyMu.Lock()
-	defer proxyMu.Unlock()
-	stopReverseProxyLocked()
-	if state.Status() != StatusRunning {
-		return
-	}
-	LogInfo("反向代理配置已变更，执行热重载")
-	if err := startReverseProxyLocked(); err != nil {
-		LogWarning("反向代理热重载失败: %s", err)
-	}
-}
-
 const httpPolyfillScript = `<script>(function(){var c=window.crypto;if(c&&typeof c.randomUUID!=="function"&&typeof c.getRandomValues==="function"){var getRand=c.getRandomValues.bind(c);var uuid=function(){var b=new Uint8Array(16);getRand(b);b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;var h=Array.from(b,function(x){return("0"+x.toString(16)).slice(-2);}).join("");return h.slice(0,8)+"-"+h.slice(8,12)+"-"+h.slice(12,16)+"-"+h.slice(16,20)+"-"+h.slice(20);};var install=function(target){try{Object.defineProperty(target,"randomUUID",{configurable:true,writable:true,value:uuid});return typeof target.randomUUID==="function";}catch(_){return false;}};if(!install(c)&&Object.getPrototypeOf(c))install(Object.getPrototypeOf(c));}})();</script>`
 
 // injectHtmlPolyfill 将兼容补丁注入 HTML 的 head 头部

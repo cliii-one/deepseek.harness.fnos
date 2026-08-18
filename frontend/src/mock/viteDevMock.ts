@@ -17,7 +17,6 @@ export function viteDevMock(): Plugin {
         server_port: 2298,
         proxy_port: 2299,
         network_proxy: '',
-        reverse_proxy_url: '',
         access_password: '',
         data_library_path: '/vol1/@appdata/deepseek.harness',
         version: '0.12.2',
@@ -427,15 +426,9 @@ export function viteDevMock(): Plugin {
           return sendJson(res, 0, '运行日志已清空', true)
         }
 
-        // 6. 配置
+        // 6. 配置（只读：应用设置功能已随 v0.3.0 移除，仅保留 GET 供工作区读取数据目录路径）
         if (path.endsWith('/api/config') && req.method === 'GET') {
           return sendJson(res, 0, 'success', config)
-        }
-
-        if (path.endsWith('/api/config') && req.method === 'POST') {
-          const body = await readJsonBody(req)
-          Object.assign(config, body)
-          return sendJson(res, 0, '应用设置保存成功', config)
         }
 
         next()
