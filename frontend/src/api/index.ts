@@ -35,7 +35,8 @@ export const pluginApi = {
   run: (command: string) => http.post<{ command: string }>('plugins/run', { command }),
   toggle: (name: string, enabled: boolean) =>
     http.post<{ name: string; enabled: boolean }>('plugins/toggle', { name, enabled }),
-  upload: (file: File) => http.upload<{ command: string; name: string; dir: string }>('plugins/upload', file)
+  disableAllBroken: () => http.post<{ disabled: string[] }>('plugins/disable-broken'),
+  cancel: () => http.post('plugins/cancel')
 }
 
 /**

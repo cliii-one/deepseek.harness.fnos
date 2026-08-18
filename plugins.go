@@ -1,10 +1,7 @@
 package main
 
 import (
-	"archive/tar"
-	"archive/zip"
 	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,10 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -34,8 +29,7 @@ const (
 )
 
 var pluginVerbAliases = map[string]pluginVerb{
-	"add": pluginAdd,
-	// pnpm 的 install/i 是"按清单安装"，与 add 语义不同
+	"add":     pluginAdd,
 	"install": pluginInstall, "i": pluginInstall,
 	"remove": pluginRemove, "rm": pluginRemove, "uninstall": pluginRemove, "un": pluginRemove,
 	"update": pluginUpdate, "up": pluginUpdate, "upgrade": pluginUpdate,
@@ -56,7 +50,6 @@ var (
 	specForbiddenRe = regexp.MustCompile(`[;|` + "`" + `$()\r\n]`)
 )
 
-// splitCommandLine 解析命令行字符串，支持成对单/双引号并自动剥离外层引号
 func splitCommandLine(input string) ([]string, error) {
 	var tokens []string
 	var cur strings.Builder
@@ -119,20 +112,18 @@ func validatePluginSpec(spec string) error {
 		return nil
 	}
 	if strings.HasPrefix(spec, ".") {
-		return fmt.Errorf("相对路径请使用 file: 绝对路径，或改用上传方式")
+		return fmt.Errorf("不支持相对路径，请输入标准 npm 包名或 Git 仓库地址")
 	}
 	return fmt.Errorf("无法识别的包名/地址格式")
 }
 
 type pluginCommand struct {
-	Verb    pluginVerb
-	Profile string
-	Specs   []string
-	// AllowKey allowBuilds 归属键（上传用解析出的包名，命令用 spec）
+	Verb     pluginVerb
+	Profile  string
+	Specs    []string
 	AllowKey string
 }
 
-// parsePluginCommand 仅接受 dsh plugin 形式，解析为受控 argv；非法输入一律拒绝
 func parsePluginCommand(input string) (*pluginCommand, error) {
 	fields, err := splitCommandLine(strings.TrimSpace(input))
 	if err != nil {
@@ -142,7 +133,7 @@ func parsePluginCommand(input string) (*pluginCommand, error) {
 		return nil, fmt.Errorf("请输入插件命令")
 	}
 	if len(fields) < 2 || fields[0] != "dsh" || fields[1] != "plugin" {
-		return nil, fmt.Errorf("请输入 dsh 命令，例如: dsh plugin add 包名")
+		return nil, fmt.Errorf("请输入标准 dsh 命令，例如: dsh plugin --profile web add 包名")
 	}
 
 	profile := "web"
@@ -207,32 +198,30 @@ func pluginProfileDir() string {
 	return filepath.Join(pkgVarDir, "dsh-data", "profiles", "web")
 }
 
+// pluginItem 前端呈现的富元数据插件模型
 type pluginItem struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Spec    string `json:"spec"`
-	Layer   bool   `json:"layer"`
+	Name        string   `json:"name"`
+	Version     string   `json:"version,omitempty"`
+	Spec        string   `json:"spec,omitempty"`
+	State       string   `json:"state"` // "live", "disabled", "inert", "broken"
+	Layer       bool     `json:"layer"` // 兼容字段: State == "live"
+	EntryIDs    []string `json:"entryIds,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Author      string   `json:"author,omitempty"`
+	Homepage    string   `json:"homepage,omitempty"`
+	License     string   `json:"license,omitempty"`
+	Keywords    []string `json:"keywords,omitempty"`
+	IsProtected bool     `json:"isProtected"`
+	HasBundle   bool     `json:"hasBundle"`
+	ErrorReason string   `json:"errorReason,omitempty"`
 }
 
 type pluginListPayload struct {
 	Profile string       `json:"profile"`
 	Plugins []pluginItem `json:"plugins"`
-	Builtin []string     `json:"builtin"`
 	Bundles []string     `json:"bundles"`
 }
 
-func readProfileManifest() (deps map[string]string, bundles []string, err error) {
-	m, err := readProfileManifestFull()
-	if err != nil {
-		return nil, nil, err
-	}
-	if m.Dsh != nil && m.Dsh.Profile != nil {
-		bundles = m.Dsh.Profile.Bundles
-	}
-	return m.Dependencies, bundles, nil
-}
-
-// profileManifest profile package.json 完整结构（读改写）
 type profileManifest struct {
 	Name         string            `json:"name"`
 	Private      bool              `json:"private"`
@@ -241,7 +230,7 @@ type profileManifest struct {
 	Dsh          *struct {
 		Profile *struct {
 			Bundles  []string `json:"bundles"`
-			Disabled []string `json:"disabled,omitempty"`
+			Disabled []string `json:"disabled"` // 兼容旧版 disabled 字段
 		} `json:"profile"`
 	} `json:"dsh,omitempty"`
 }
@@ -250,175 +239,170 @@ func profileManifestPath() string {
 	return filepath.Join(pluginProfileDir(), "package.json")
 }
 
-func readProfileManifestFull() (profileManifest, error) {
-	var m profileManifest
+// snapshotManifest 抓取当前 package.json 快照
+func snapshotManifest() []byte {
 	data, err := os.ReadFile(profileManifestPath())
 	if err != nil {
-		return m, err
+		return nil
 	}
+	return data
+}
+
+// rollbackManifest 回滚 package.json 到安全快照状态（防幽灵依赖残留）
+func rollbackManifest(snapshot []byte) {
+	if len(snapshot) == 0 {
+		return
+	}
+	if err := os.WriteFile(profileManifestPath(), snapshot, 0644); err != nil {
+		LogWarning("[事务回滚] 还原 package.json 失败: %s", err)
+	} else {
+		LogInfo("[事务回滚] 插件操作失败，已自动将 package.json 还原至安全状态")
+	}
+}
+
+// verifyInstalledPluginEntry 校验已安装插件是否具备有效物理入口文件（防假成功）
+func verifyInstalledPluginEntry(spec string) error {
+	norm := normalizePluginKey(spec)
+	meta, found := installedPluginMetadata(norm)
+	if !found {
+		return nil
+	}
+
+	pkgDir := filepath.Join(pluginProfileDir(), "node_modules", meta.Name)
+	if _, err := os.Stat(pkgDir); err != nil {
+		pkgDir = filepath.Join(srcDir, "node_modules", meta.Name)
+		if _, err := os.Stat(pkgDir); err != nil {
+			return nil
+		}
+	}
+
+	pkgJsonPath := filepath.Join(pkgDir, "package.json")
+	data, err := os.ReadFile(pkgJsonPath)
+	if err != nil {
+		return nil
+	}
+
+	var raw struct {
+		Main   string `json:"main"`
+		Module string `json:"module"`
+	}
+	_ = json.Unmarshal(data, &raw)
+
+	// 候选入口文件探测
+	var entryCandidates []string
+	if raw.Main != "" {
+		entryCandidates = append(entryCandidates, raw.Main)
+	}
+	if raw.Module != "" {
+		entryCandidates = append(entryCandidates, raw.Module)
+	}
+	entryCandidates = append(entryCandidates, "index.js", "dist/index.js", "lib/index.js", "dist/index.mjs", "lib/index.mjs")
+
+	hasValidFile := false
+	for _, candidate := range entryCandidates {
+		targetFile := filepath.Join(pkgDir, filepath.FromSlash(candidate))
+		if st, err := os.Stat(targetFile); err == nil && !st.IsDir() {
+			hasValidFile = true
+			break
+		}
+		if st, err := os.Stat(targetFile + ".js"); err == nil && !st.IsDir() {
+			hasValidFile = true
+			break
+		}
+	}
+
+	if !hasValidFile && (raw.Main != "" || raw.Module != "") {
+		return fmt.Errorf("插件「%s」缺少可执行入口文件（package.json 指向的 main/module 文件不存在，可能是镜像源同步缺失产物）", meta.Name)
+	}
+	return nil
+}
+
+// checkDuplicatePlugin 检查插件是否已经安装
+func checkDuplicatePlugin(spec string) error {
+	norm := normalizePluginKey(spec)
+	deps, _, _, err := readProfileManifest()
+	if err != nil {
+		return nil
+	}
+	if currentSpec, exists := deps[norm]; exists {
+		return fmt.Errorf("插件「%s」已安装 (版本: %s)，如需更新请在列表中点击【更新】", norm, currentSpec)
+	}
+	return nil
+}
+
+func readProfileManifest() (deps map[string]string, bundles []string, legacyDisabled []string, err error) {
+	data, err := os.ReadFile(profileManifestPath())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var m profileManifest
 	if err := json.Unmarshal(data, &m); err != nil {
-		return m, err
+		return nil, nil, nil, err
 	}
 	if m.Dependencies == nil {
 		m.Dependencies = map[string]string{}
 	}
-	return m, nil
+	if m.Dsh != nil && m.Dsh.Profile != nil {
+		bundles = m.Dsh.Profile.Bundles
+		legacyDisabled = m.Dsh.Profile.Disabled
+	}
+	return m.Dependencies, bundles, legacyDisabled, nil
 }
 
-func writeProfileManifestFull(m profileManifest) error {
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(profileManifestPath(), data, 0644)
+type rawPackageMeta struct {
+	Name        string   `json:"name"`
+	Version     string   `json:"version"`
+	Description string   `json:"description"`
+	Homepage    string   `json:"homepage"`
+	License     string   `json:"license"`
+	Keywords    []string `json:"keywords"`
+	Author      any      `json:"author"`
+	Dsh         *struct {
+		Bundle *struct {
+			Patch string `json:"patch"`
+		} `json:"bundle"`
+		Client any `json:"client"`
+	} `json:"dsh"`
 }
 
-func sliceIndex(slice []string, val string) int {
-	for i, item := range slice {
-		if item == val {
-			return i
-		}
-	}
-	return -1
-}
-
-func sliceContains(slice []string, val string) bool {
-	return sliceIndex(slice, val) >= 0
-}
-
-func sliceRemove(slice []string, val string) []string {
-	idx := sliceIndex(slice, val)
-	if idx < 0 {
-		return slice
-	}
-	out := make([]string, 0, len(slice)-1)
-	out = append(out, slice[:idx]...)
-	out = append(out, slice[idx+1:]...)
-	return out
-}
-
-func sliceAddUnique(slice []string, val string) []string {
-	if sliceContains(slice, val) {
-		return slice
-	}
-	return append(slice, val)
-}
-
-// applyPluginToggle 启用=加入层列表并从禁用列表移除，禁用=从层列表移除并加入禁用列表；依赖不动，重启后生效
-func applyPluginToggle(bundles, disabled []string, deps map[string]string, name string, enabled bool) ([]string, []string, error) {
-	if enabled {
-		if _, ok := deps[name]; !ok {
-			return nil, nil, fmt.Errorf("插件 %s 未安装（不在依赖中），无法启用", name)
-		}
-		bundles = sliceAddUnique(bundles, name)
-		disabled = sliceRemove(disabled, name)
-		return bundles, disabled, nil
-	}
-	bundles = sliceRemove(bundles, name)
-	disabled = sliceAddUnique(disabled, name)
-	return bundles, disabled, nil
-}
-
-func togglePlugin(name string, enabled bool) (string, error) {
-	m, err := readProfileManifestFull()
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("profile 尚未初始化，无法切换插件状态")
-		}
-		return "", fmt.Errorf("读取 profile manifest 失败: %s", err)
-	}
-	if m.Dsh == nil || m.Dsh.Profile == nil {
-		return "", fmt.Errorf("profile manifest 缺少 dsh.profile 配置")
-	}
-	bundles, disabled, err := applyPluginToggle(m.Dsh.Profile.Bundles, m.Dsh.Profile.Disabled, m.Dependencies, name, enabled)
-	if err != nil {
-		return "", err
-	}
-	m.Dsh.Profile.Bundles = bundles
-	m.Dsh.Profile.Disabled = disabled
-	if err := writeProfileManifestFull(m); err != nil {
-		return "", fmt.Errorf("写入 profile manifest 失败: %s", err)
-	}
-	if enabled {
-		return "插件已启用，重启服务后生效", nil
-	}
-	return "插件已禁用，重启服务后生效", nil
-}
-
-// enforcePluginPreferences 在 CLI 命令执行后收敛插件状态：清理已卸载包的 disabled 记录，并剔除被上游误加入 bundles 的已禁用插件
-func enforcePluginPreferences(reEnablingSpecs ...string) error {
-	m, err := readProfileManifestFull()
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if m.Dsh == nil || m.Dsh.Profile == nil {
-		return nil
-	}
-
-	// 1. 若指定了显式重新添加的包（如 add 操作），先从 disabled 列表中移除
-	for _, spec := range reEnablingSpecs {
-		key := normalizePluginKey(spec)
-		m.Dsh.Profile.Disabled = sliceRemove(m.Dsh.Profile.Disabled, key)
-		m.Dsh.Profile.Disabled = sliceRemove(m.Dsh.Profile.Disabled, spec)
-	}
-
-	// 2. 清理已不存在于 dependencies 的失效 disabled 项（已被 remove 卸载）
-	disabledSet := make(map[string]bool)
-	var validDisabled []string
-	for _, d := range m.Dsh.Profile.Disabled {
-		if _, ok := m.Dependencies[d]; ok {
-			if !disabledSet[d] {
-				disabledSet[d] = true
-				validDisabled = append(validDisabled, d)
-			}
-		}
-	}
-	m.Dsh.Profile.Disabled = validDisabled
-
-	// 3. 从 bundles 中剔除被上游 reconcilePlugins 重新塞入但用户已禁用的插件
-	if len(disabledSet) > 0 {
-		var newBundles []string
-		for _, b := range m.Dsh.Profile.Bundles {
-			if disabledSet[b] {
-				continue
-			}
-			newBundles = append(newBundles, b)
-		}
-		m.Dsh.Profile.Bundles = newBundles
-	}
-
-	return writeProfileManifestFull(m)
-}
-
-func installedPluginVersion(name string) string {
+func installedPluginMetadata(name string) (meta rawPackageMeta, found bool) {
 	candidates := []string{
 		filepath.Join(pluginProfileDir(), "node_modules", name, "package.json"),
 		filepath.Join(pkgVarDir, "dsh-data", "profiles", "node_modules", name, "package.json"),
+		filepath.Join(srcDir, "node_modules", name, "package.json"),
 	}
 	for _, p := range candidates {
 		data, err := os.ReadFile(p)
 		if err != nil {
 			continue
 		}
-		var m struct {
-			Version string `json:"version"`
+		if json.Unmarshal(data, &meta) == nil && meta.Name != "" {
+			return meta, true
 		}
-		if json.Unmarshal(data, &m) == nil && m.Version != "" {
-			return m.Version
+	}
+	return meta, false
+}
+
+func parseAuthorString(author any) string {
+	if author == nil {
+		return ""
+	}
+	if s, ok := author.(string); ok {
+		return s
+	}
+	if m, ok := author.(map[string]any); ok {
+		if name, ok := m["name"].(string); ok {
+			return name
 		}
 	}
 	return ""
 }
 
 func handleListPlugins(c *gin.Context) {
-	deps, bundles, err := readProfileManifest()
+	deps, bundles, legacyDisabled, err := readProfileManifest()
 	if err != nil {
 		if os.IsNotExist(err) {
-			// profile 尚未初始化
-			OK(c, pluginListPayload{Profile: "web", Plugins: []pluginItem{}, Builtin: []string{}, Bundles: []string{}})
+			OK(c, pluginListPayload{Profile: "web", Plugins: []pluginItem{}, Bundles: []string{}})
 			return
 		}
 		Fail(c, http.StatusInternalServerError, "读取插件列表失败: "+err.Error())
@@ -430,31 +414,111 @@ func handleListPlugins(c *gin.Context) {
 		bundleSet[b] = true
 	}
 
-	// 内置层：在 bundles 中但不在 dependencies（随发行版交付，不可管理）
-	var builtin []string
-	for _, b := range bundles {
-		if _, isDep := deps[b]; !isDep {
-			builtin = append(builtin, b)
+	// 官方 Cordis User Patch 中的禁用状态映射
+	disabledMap, _ := ReadDisabledEntryMap("web")
+	if disabledMap == nil {
+		disabledMap = make(map[string]bool)
+	}
+
+	// 自动迁移：检测旧版 package.json 中的 disabled 状态并同步写入官方 cordis.patch.yml
+	if len(legacyDisabled) > 0 {
+		for _, disName := range legacyDisabled {
+			disName = strings.TrimSpace(disName)
+			if disName == "" {
+				continue
+			}
+			isAlreadyDisabled := false
+			entryIDs := ExtractPluginEntryIDs("web", disName)
+			for _, eid := range entryIDs {
+				if disabledMap[eid] {
+					isAlreadyDisabled = true
+					break
+				}
+			}
+			if !isAlreadyDisabled {
+				_ = SetPluginDisabled("web", disName, true)
+				for _, eid := range entryIDs {
+					disabledMap[eid] = true
+				}
+				LogInfo("[历史配置迁移] 检测到旧版 package.json 中的 disabled 状态，已自动无缝迁移至官方 cordis.patch.yml: %s", disName)
+			}
 		}
 	}
 
-	// 用户插件：dependencies 中的包（与 bundles 求交得到是否激活为层）
+	// 故障插件映射
+	failedMap := GetFailedPlugins()
+
 	names := make([]string, 0, len(deps))
 	for name := range deps {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+
 	plugins := make([]pluginItem, 0, len(names))
 	for _, name := range names {
+		meta, _ := installedPluginMetadata(name)
+		entryIDs := ExtractPluginEntryIDs("web", name)
+		hasBundle := meta.Dsh != nil && meta.Dsh.Bundle != nil && meta.Dsh.Bundle.Patch != ""
+		isProtected := IsProtectedPlugin(name)
+
+		// 判定插件当前状态
+		stateVal := "live"
+		errorReason := ""
+
+		// 1. 检查是否存在加载崩溃
+		if failure, isBroken := failedMap[name]; isBroken {
+			stateVal = "broken"
+			errorReason = failure.Reason
+		} else {
+			for _, eid := range entryIDs {
+				if f, ok := failedMap[eid]; ok {
+					stateVal = "broken"
+					errorReason = f.Reason
+					break
+				}
+			}
+		}
+
+		// 2. 若未崩溃，检查是否被 patch 显式禁用
+		if stateVal != "broken" {
+			isDisabled := false
+			for _, eid := range entryIDs {
+				if disabledMap[eid] {
+					isDisabled = true
+					break
+				}
+			}
+			if isDisabled {
+				stateVal = "disabled"
+			} else if !hasBundle && !bundleSet[name] {
+				// 未声明 dsh.bundle，作为普通依赖存在
+				stateVal = "inert"
+			}
+		}
+
 		plugins = append(plugins, pluginItem{
-			Name:    name,
-			Spec:    deps[name],
-			Version: installedPluginVersion(name),
-			Layer:   bundleSet[name],
+			Name:        name,
+			Version:     meta.Version,
+			Spec:        deps[name],
+			State:       stateVal,
+			Layer:       (stateVal == "live"),
+			EntryIDs:    entryIDs,
+			Description: meta.Description,
+			Author:      parseAuthorString(meta.Author),
+			Homepage:    meta.Homepage,
+			License:     meta.License,
+			Keywords:    meta.Keywords,
+			IsProtected: isProtected,
+			HasBundle:   hasBundle,
+			ErrorReason: errorReason,
 		})
 	}
 
-	OK(c, pluginListPayload{Profile: "web", Plugins: plugins, Builtin: builtin, Bundles: bundles})
+	OK(c, pluginListPayload{
+		Profile: "web",
+		Plugins: plugins,
+		Bundles: bundles,
+	})
 }
 
 func handlePluginStatus(c *gin.Context) {
@@ -534,7 +598,6 @@ func notifyPlugin() {
 	}
 }
 
-// tailWriter 保留最近 max 字节输出，供失败时回显原因（并发写，需加锁）
 type tailWriter struct {
 	mu  sync.Mutex
 	buf []byte
@@ -565,9 +628,6 @@ func (t *tailWriter) String() string {
 	return string(t.buf)
 }
 
-// pluginFailMessage 把进程错误与 stderr 尾部合并成可读的失败信息。
-// 构建脚本被 pnpm 拦截的常见场景由 runPluginOpWithAutoAllow 自动放行并重试，
-// 此处作为兜底：无法解析被拦包名或重试仍失败时附加指引。
 func pluginFailMessage(err error, tail string) string {
 	msg := err.Error()
 	if tail = strings.TrimSpace(tail); tail != "" {
@@ -576,21 +636,47 @@ func pluginFailMessage(err error, tail string) string {
 	if strings.Contains(tail, "ERR_PNPM_IGNORED_BUILDS") ||
 		strings.Contains(tail, "approve-builds") ||
 		strings.Contains(tail, "allowBuilds") {
-		msg += "\n提示：构建脚本被 pnpm 拦截。管理器已自动放行并重试；若仍失败，请检查 " +
-			filepath.Join(pluginProfileDir(), "pnpm-workspace.yaml") + " 的 allowBuilds 配置或查看上方 pnpm 输出。"
+		msg += "\n提示：构建脚本被 pnpm 拦截。管理器已自动放行并重试；若仍失败，请检查 pnpm-workspace.yaml 的 allowBuilds 配置。"
 	}
 	return msg
 }
 
-// shortPluginFailReason 日志用简短失败原因，避免重复打进 pnpm 输出尾部
 func shortPluginFailReason(err error) string {
 	msg := err.Error()
 	if strings.Contains(msg, "ERR_PNPM_IGNORED_BUILDS") ||
 		strings.Contains(msg, "approve-builds") ||
 		strings.Contains(msg, "allowBuilds") {
-		return "构建脚本被 pnpm 拦截（详见上方 pnpm 输出，按提示配置 allowBuilds 后重试）"
+		return "构建脚本被 pnpm 拦截，已自动配置放行并重试"
 	}
 	return msg
+}
+
+var (
+	activePluginCmdMu    sync.Mutex
+	activePluginCmd      *exec.Cmd
+	activePluginCanceled bool
+)
+
+// cancelActivePlugin 终止当前正在运行的插件进程树
+func cancelActivePlugin() bool {
+	activePluginCmdMu.Lock()
+	defer activePluginCmdMu.Unlock()
+	if activePluginCmd == nil || activePluginCmd.Process == nil {
+		return false
+	}
+	activePluginCanceled = true
+	pid := activePluginCmd.Process.Pid
+	LogWarning("[插件管理] 收到取消请求，正在终止插件操作进程组 (PID: %d)...", pid)
+	go killProcessTree(pid)
+	return true
+}
+
+func handlePluginCancel(c *gin.Context) {
+	if !cancelActivePlugin() {
+		Fail(c, http.StatusBadRequest, "当前没有正在执行的插件操作")
+		return
+	}
+	OKMsg(c, "已发送取消指令", nil)
 }
 
 func runPluginSubprocess(cmdArgs []string) error {
@@ -603,10 +689,33 @@ func runPluginSubprocess(cmdArgs []string) error {
 	bin, args := dshCliCmd(cmdArgs...)
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = srcDir
+	setProcessGroup(cmd)
 	cmd.Stdout = io.MultiWriter(outWriter, tail)
 	cmd.Stderr = io.MultiWriter(errWriter, tail)
-	err := cmd.Run()
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	activePluginCmdMu.Lock()
+	activePluginCmd = cmd
+	activePluginCanceled = false
+	activePluginCmdMu.Unlock()
+
+	defer func() {
+		activePluginCmdMu.Lock()
+		activePluginCmd = nil
+		activePluginCmdMu.Unlock()
+	}()
+
+	err := cmd.Wait()
 	if err != nil {
+		activePluginCmdMu.Lock()
+		canceled := activePluginCanceled
+		activePluginCmdMu.Unlock()
+		if canceled {
+			return fmt.Errorf("操作已被用户手动取消")
+		}
 		return fmt.Errorf("%s", pluginFailMessage(err, tail.String()))
 	}
 	return nil
@@ -621,11 +730,34 @@ func runPluginSync(cmdArgs []string) (string, error) {
 	bin, args := dshCliCmd(cmdArgs...)
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = srcDir
+	setProcessGroup(cmd)
 	var buf bytes.Buffer
 	cmd.Stdout = io.MultiWriter(outWriter, &buf)
 	cmd.Stderr = io.MultiWriter(errWriter, &buf)
-	err := cmd.Run()
+
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+
+	activePluginCmdMu.Lock()
+	activePluginCmd = cmd
+	activePluginCanceled = false
+	activePluginCmdMu.Unlock()
+
+	defer func() {
+		activePluginCmdMu.Lock()
+		activePluginCmd = nil
+		activePluginCmdMu.Unlock()
+	}()
+
+	err := cmd.Wait()
 	if err != nil {
+		activePluginCmdMu.Lock()
+		canceled := activePluginCanceled
+		activePluginCmdMu.Unlock()
+		if canceled {
+			return "", fmt.Errorf("操作已被用户手动取消")
+		}
 		return buf.String(), fmt.Errorf("%s", pluginFailMessage(err, buf.String()))
 	}
 	return buf.String(), nil
@@ -645,7 +777,6 @@ func pluginAllowKey(cmd *pluginCommand) string {
 	return strings.Join(keys, " ")
 }
 
-// runPluginOpWithAutoAllow add/update/install 遇到 pnpm 拦截构建脚本时自动放行并重试一次
 func runPluginOpWithAutoAllow(cmd *pluginCommand, doneMsg string) (string, error) {
 	var out string
 	var runErr error
@@ -661,15 +792,13 @@ func runPluginOpWithAutoAllow(cmd *pluginCommand, doneMsg string) (string, error
 		return doneMsg, nil
 	}
 
-	// 仅修改型安装类操作支持自动重试
 	if cmd.Verb != pluginAdd && cmd.Verb != pluginUpdate && cmd.Verb != pluginInstall {
 		return "", runErr
 	}
 
-	// 处理 store 路径变更引起的冲突，自动清理旧依赖缓存并重试
 	if strings.Contains(runErr.Error(), "ERR_PNPM_UNEXPECTED_STORE") {
 		_ = os.RemoveAll(filepath.Join(pluginProfileDir(), "node_modules"))
-		LogWarning("检测到依赖存储位置变更，已自动清理旧缓存并重新执行: %s", cmd.display())
+		LogWarning("检测到依赖存储位置变更，已自动清理缓存并重新执行: %s", cmd.display())
 		if runErr = runPluginSubprocess(cmd.dshArgs()); runErr == nil {
 			return doneMsg, nil
 		}
@@ -690,236 +819,63 @@ func runPluginOpWithAutoAllow(cmd *pluginCommand, doneMsg string) (string, error
 	return doneMsg + "（已自动放行构建脚本: " + strings.Join(pkgs, ", ") + "）", nil
 }
 
-// launchPluginOp 在 goroutine 中执行插件操作（调用方需先 setPluginRunning 成功）
 func launchPluginOp(cmd *pluginCommand, doneMsg string) {
 	LogInfo("开始执行插件管理操作: verb=%s, specs=%v, profile=%s", cmd.Verb, cmd.Specs, cmd.Profile)
 	go func() {
+		// 安装/更新前快照 package.json，防止失败产生幽灵依赖
+		var manifestSnapshot []byte
+		if cmd.Verb == pluginAdd || cmd.Verb == pluginUpdate || cmd.Verb == pluginInstall {
+			manifestSnapshot = snapshotManifest()
+		}
+
 		msg, runErr := runPluginOpWithAutoAllow(cmd, doneMsg)
 		if runErr != nil {
 			LogWarning("插件执行失败: %s", shortPluginFailReason(runErr))
+			if manifestSnapshot != nil {
+				rollbackManifest(manifestSnapshot)
+			}
 			setPluginDone(false, runErr.Error())
 			return
 		}
-		// 成功后根据用户意图收敛 profile 状态，防止上游 reconcilePlugins 冲掉禁用设置
-		var reEnable []string
-		if cmd.Verb == pluginAdd {
-			reEnable = append(reEnable, cmd.Specs...)
-			if cmd.AllowKey != "" {
-				reEnable = append(reEnable, cmd.AllowKey)
+
+		// 安装成功后进行入口文件完整性校验（防假成功）
+		if cmd.Verb == pluginAdd || cmd.Verb == pluginUpdate {
+			for _, spec := range cmd.Specs {
+				if err := verifyInstalledPluginEntry(spec); err != nil {
+					LogWarning("插件产物校验失败: %s", err)
+					if manifestSnapshot != nil {
+						rollbackManifest(manifestSnapshot)
+					}
+					setPluginDone(false, err.Error())
+					return
+				}
 			}
 		}
-		if err := enforcePluginPreferences(reEnable...); err != nil {
-			LogWarning("校准插件状态失败: %s", err)
-		}
-		// 卸载成功后清理该插件相关的 allowBuilds 条目（best-effort）
-		if cmd.Verb == pluginRemove && pluginAllowKey(cmd) != "" {
-			if err := cleanupAllowBuildsFor(cmd.Profile, pluginAllowKey(cmd)); err != nil {
-				LogWarning("清理 allowBuilds 失败: %s", err)
+
+		// 卸载成功后清理残留（cordis.patch.yml 用户补丁行、allowBuilds 与故障标记）
+		if cmd.Verb == pluginRemove {
+			for _, spec := range cmd.Specs {
+				ClearPluginFailure(spec)
+				_ = RemovePluginFromProfileUserPatch(cmd.Profile, spec)
+			}
+			if pluginAllowKey(cmd) != "" {
+				_ = cleanupAllowBuildsFor(cmd.Profile, pluginAllowKey(cmd))
 			}
 		}
+
 		LogInfo("插件执行完成: %s", msg)
 		setPluginDone(true, msg)
 	}()
 }
 
-const maxPluginUploadSize = 64 << 20 // 64MB
-
-var pluginDirNameRe = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-
-func sanitizePluginDirName(filename string) string {
-	base := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
-	base = pluginDirNameRe.ReplaceAllString(base, "-")
-	base = strings.Trim(base, ".-")
-	if base == "" {
-		base = "plugin"
-	}
-	return base
-}
-
-func detectArchiveType(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	head := make([]byte, 4)
-	if _, err := io.ReadFull(f, head); err != nil {
-		return "", fmt.Errorf("文件为空或读取失败")
-	}
-	switch {
-	case head[0] == 0x1f && head[1] == 0x8b:
-		return "tgz", nil
-	case head[0] == 'P' && head[1] == 'K' && head[2] == 3 && head[3] == 4:
-		return "zip", nil
-	default:
-		return "", fmt.Errorf("不支持的文件格式（仅支持 .tgz / .zip）")
-	}
-}
-
-// safeJoin 防止 zip-slip：目标必须落在 base 内
-func safeJoin(base, name string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(name))
-	if clean == "." || clean == ".." || filepath.IsAbs(clean) ||
-		strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("非法路径: %s", name)
-	}
-	return filepath.Join(base, clean), nil
-}
-
-func extractTgzFile(path, dst string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		target, err := safeJoin(dst, hdr.Name)
-		if err != nil {
-			return err
-		}
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return err
-			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(out, tr); err != nil {
-				out.Close()
-				return err
-			}
-			out.Close()
-		default:
-			// 忽略符号链接等非普通文件
-		}
-	}
-}
-
-func extractZipArchive(path, dst string) error {
-	zr, err := zip.OpenReader(path)
-	if err != nil {
-		return err
-	}
-	defer zr.Close()
-	for _, f := range zr.File {
-		target, err := safeJoin(dst, f.Name)
-		if err != nil {
-			return err
-		}
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0755); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			return err
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-		if err != nil {
-			rc.Close()
-			return err
-		}
-		if _, err := io.Copy(out, rc); err != nil {
-			out.Close()
-			rc.Close()
-			return err
-		}
-		out.Close()
-		rc.Close()
-	}
-	return nil
-}
-
-// findPackageRoot 定位包根：优先根目录，其次唯一的单层子目录
-func findPackageRoot(dir string) (string, error) {
-	if _, err := os.Stat(filepath.Join(dir, "package.json")); err == nil {
-		return dir, nil
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return "", err
-	}
-	var found string
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		sub := filepath.Join(dir, e.Name())
-		if _, err := os.Stat(filepath.Join(sub, "package.json")); err == nil {
-			if found != "" {
-				return "", fmt.Errorf("发现多个插件包，无法确定安装目标")
-			}
-			found = sub
-		}
-	}
-	if found == "" {
-		return "", fmt.Errorf("未找到有效的插件包（缺少 package.json）")
-	}
-	return found, nil
-}
-
-// validatePluginPackage 校验 package.json 与 dsh.bundle.patch 声明
-func validatePluginPackage(dir string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
-	if err != nil {
-		return "", fmt.Errorf("读取 package.json 失败: %s", err)
-	}
-	var m struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-		Dsh     *struct {
-			Bundle *struct {
-				Patch string `json:"patch"`
-			} `json:"bundle"`
-		} `json:"dsh"`
-	}
-	if err := json.Unmarshal(data, &m); err != nil {
-		return "", fmt.Errorf("package.json 解析失败: %s", err)
-	}
-	if m.Name == "" {
-		return "", fmt.Errorf("package.json 缺少 name 字段")
-	}
-	if m.Dsh == nil || m.Dsh.Bundle == nil || m.Dsh.Bundle.Patch == "" {
-		return "", fmt.Errorf("不是 dsh 插件包：缺少 dsh.bundle.patch 声明")
-	}
-	patchPath := filepath.Join(dir, filepath.FromSlash(m.Dsh.Bundle.Patch))
-	if !strings.HasPrefix(filepath.Clean(patchPath), filepath.Clean(dir)+string(filepath.Separator)) {
-		return "", fmt.Errorf("dsh.bundle.patch 路径非法")
-	}
-	if _, err := os.Stat(patchPath); err != nil {
-		return "", fmt.Errorf("dsh.bundle.patch 指向的文件不存在: %s", m.Dsh.Bundle.Patch)
-	}
-	return m.Name, nil
-}
-
-// pluginPreviewError 输入框仅支持安装（add），更新/卸载由列表按钮承担
 func pluginPreviewError(cmd *pluginCommand) string {
 	if cmd.Verb != pluginAdd {
 		return "输入框仅支持安装（add）。更新/卸载请在下方已安装插件列表中操作"
+	}
+	for _, spec := range cmd.Specs {
+		if err := checkDuplicatePlugin(spec); err != nil {
+			return err.Error()
+		}
 	}
 	return ""
 }
@@ -964,6 +920,10 @@ func handlePluginRun(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if reason := pluginPreviewError(cmd); reason != "" {
+		Fail(c, http.StatusBadRequest, reason)
+		return
+	}
 	if err := setPluginRunning(); err != nil {
 		Fail(c, http.StatusConflict, err.Error())
 		return
@@ -992,6 +952,7 @@ func handlePluginRun(c *gin.Context) {
 	OKMsg(c, startMsg, gin.H{"command": cmd.display()})
 }
 
+// handlePluginToggle 基于官方 cordis.patch.yml 用户补丁层进行热启停
 func handlePluginToggle(c *gin.Context) {
 	var req struct {
 		Name    string `json:"name"`
@@ -1005,115 +966,43 @@ func handlePluginToggle(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "缺少插件名")
 		return
 	}
-	// 与 pnpm 操作共用互斥，避免竞态改写 manifest
-	if err := setPluginRunning(); err != nil {
-		Fail(c, http.StatusConflict, err.Error())
+
+	if IsProtectedPlugin(req.Name) {
+		Fail(c, http.StatusForbidden, fmt.Sprintf("核心基础设施插件「%s」受到保护，禁止更改启停状态", req.Name))
 		return
 	}
-	go func() {
-		action := "禁用"
-		if req.Enabled {
-			action = "启用"
-		}
-		LogInfo("切换插件状态 [%s]: %s", action, req.Name)
-		msg, err := togglePlugin(req.Name, req.Enabled)
-		if err != nil {
-			LogWarning("切换插件状态失败: %s", shortPluginFailReason(err))
-			setPluginDone(false, err.Error())
-			return
-		}
-		LogInfo("切换插件状态完成: %s", msg)
-		setPluginDone(true, msg)
-	}()
-	toggleMsg := fmt.Sprintf("已启用插件「%s」", req.Name)
-	if !req.Enabled {
-		toggleMsg = fmt.Sprintf("已禁用插件「%s」", req.Name)
+
+	// 官方机制：通过在 cordis.patch.yml 中设置 disabled: true/false
+	disabled := !req.Enabled
+	if err := SetPluginDisabled("web", req.Name, disabled); err != nil {
+		LogWarning("切换插件状态失败 [%s]: %s", req.Name, err)
+		Fail(c, http.StatusInternalServerError, "切换插件状态失败: "+err.Error())
+		return
 	}
-	OKMsg(c, toggleMsg, gin.H{"name": req.Name, "enabled": req.Enabled})
+
+	// 若禁用了故障插件，清除该插件的崩溃报错记录
+	if disabled {
+		ClearPluginFailure(req.Name)
+	}
+
+	action := "已启用"
+	if disabled {
+		action = "已禁用"
+	}
+	msg := fmt.Sprintf("%s插件「%s」", action, req.Name)
+	OKMsg(c, msg, gin.H{"name": req.Name, "enabled": req.Enabled})
 }
 
-func handlePluginUpload(c *gin.Context) {
-	file, err := c.FormFile("file")
+// handlePluginDisableAllBroken 一键禁用所有异常插件（自愈恢复）
+func handlePluginDisableAllBroken(c *gin.Context) {
+	disabled, err := DisableAllBrokenPlugins("web")
 	if err != nil {
-		Fail(c, http.StatusBadRequest, "未收到上传文件")
+		Fail(c, http.StatusInternalServerError, "禁用异常插件失败: "+err.Error())
 		return
 	}
-	if file.Size > maxPluginUploadSize {
-		Fail(c, http.StatusBadRequest, "文件过大（上限 64MB）")
+	if len(disabled) == 0 {
+		OKMsg(c, "当前没有需要禁用的异常插件", gin.H{"disabled": []string{}})
 		return
 	}
-
-	// 先落盘到临时文件，便于按类型统一解包
-	tmpPath := filepath.Join(pkgVarDir, "plugins", ".upload-"+strconv.FormatInt(time.Now().UnixNano(), 10))
-	if err := os.MkdirAll(filepath.Dir(tmpPath), 0755); err != nil {
-		Fail(c, http.StatusInternalServerError, "创建临时目录失败: "+err.Error())
-		return
-	}
-	defer os.Remove(tmpPath)
-
-	f, err := file.Open()
-	if err != nil {
-		Fail(c, http.StatusInternalServerError, "读取上传文件失败: "+err.Error())
-		return
-	}
-	out, err := os.Create(tmpPath)
-	if err != nil {
-		f.Close()
-		Fail(c, http.StatusInternalServerError, "写入临时文件失败: "+err.Error())
-		return
-	}
-	if _, err := io.Copy(out, f); err != nil {
-		out.Close()
-		f.Close()
-		Fail(c, http.StatusInternalServerError, "写入临时文件失败: "+err.Error())
-		return
-	}
-	out.Close()
-	f.Close()
-
-	kind, err := detectArchiveType(tmpPath)
-	if err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	extractDir := filepath.Join(pkgVarDir, "plugins", sanitizePluginDirName(file.Filename))
-	_ = os.RemoveAll(extractDir)
-	if err := os.MkdirAll(extractDir, 0755); err != nil {
-		Fail(c, http.StatusInternalServerError, "创建解压目录失败: "+err.Error())
-		return
-	}
-
-	switch kind {
-	case "tgz":
-		err = extractTgzFile(tmpPath, extractDir)
-	case "zip":
-		err = extractZipArchive(tmpPath, extractDir)
-	}
-	if err != nil {
-		Fail(c, http.StatusBadRequest, "解压失败: "+err.Error())
-		return
-	}
-
-	pkgDir, err := findPackageRoot(extractDir)
-	if err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	name, err := validatePluginPackage(pkgDir)
-	if err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	LogInfo("本地插件包校验通过: %s (%s)", name, pkgDir)
-
-	if err := setPluginRunning(); err != nil {
-		Fail(c, http.StatusConflict, err.Error())
-		return
-	}
-
-	cmd := &pluginCommand{Verb: pluginAdd, Profile: "web", Specs: []string{"file:" + pkgDir}, AllowKey: name}
-	LogInfo("安装本地插件包: %s", name)
-	launchPluginOp(cmd, fmt.Sprintf("「%s」安装完成，重启服务后生效", name))
-	OKMsg(c, fmt.Sprintf("已开始安装离线插件包「%s」", name), gin.H{"command": cmd.display(), "name": name, "dir": pkgDir})
+	OKMsg(c, fmt.Sprintf("已成功禁用 %d 个异常插件并生效", len(disabled)), gin.H{"disabled": disabled})
 }

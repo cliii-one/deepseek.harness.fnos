@@ -74,6 +74,11 @@ func update(forceRebuild bool) {
 			restartService()
 			return
 		}
+		shortTarget := commitAfter
+		if len(shortTarget) > 7 {
+			shortTarget = shortTarget[:7]
+		}
+		state.SetTargetCommit(shortTarget)
 		LogInfo("检测到版本变更 (%s → %s)，开始构建", commitBefore, commitAfter)
 		state.SetStatus(StatusBuilding, fmt.Sprintf("检测到版本变更 (%s → %s)，正在同步依赖与构建...", commitBefore, commitAfter))
 	}

@@ -13,8 +13,26 @@
         <!-- 上半部分：应用标题/版本 + 右侧主操作（进入 Harness） -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div class="space-y-1 min-w-0 flex-1">
-            <div class="text-lg sm:text-xl font-bold text-slate-800 dark:text-slate-100 tracking-tight leading-tight truncate">
-              {{ statusData.name || 'DeepSeek Harness' }}
+            <div class="flex items-center gap-2.5 flex-wrap min-w-0">
+              <span class="text-lg sm:text-xl font-bold text-slate-800 dark:text-slate-100 tracking-tight leading-tight truncate">
+                {{ statusData.name || 'DeepSeek Harness' }}
+              </span>
+              <!-- 更新构建过程中的目标 Commit 动态小徽章 -->
+              <n-tag
+                v-if="isBuilding && statusData.target_commit && statusData.commit && statusData.commit !== statusData.target_commit"
+                type="info"
+                size="small"
+                round
+                :bordered="false"
+                class="font-mono text-xs bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 font-semibold px-2 flex items-center gap-1 shadow-sm shrink-0"
+              >
+                <template #icon>
+                  <n-spin :size="10" class="mr-0.5" />
+                </template>
+                <span>{{ formatShortCommit(statusData.commit) }}</span>
+                <span class="opacity-60">→</span>
+                <span>{{ formatShortCommit(statusData.target_commit) }}</span>
+              </n-tag>
             </div>
             <div class="text-xs sm:text-sm text-slate-400 dark:text-slate-500 flex items-center gap-1.5 sm:gap-2 flex-nowrap min-w-0">
               <span class="shrink-0">版本: {{ statusData.version || '-' }}</span>
@@ -230,6 +248,11 @@ const {
   statusLabel,
   uptimeText
 } = storeToRefs(systemStore)
+
+function formatShortCommit(c?: string): string {
+  if (!c || c === '-') return '-'
+  return c.length > 7 ? c.slice(0, 7) : c
+}
 
 interface ActionCard {
   action: string

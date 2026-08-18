@@ -42,8 +42,9 @@ func InitRoutes(r *gin.Engine) {
 		api.GET("/plugins/status", handlePluginStatus)
 		api.POST("/plugins/preview", handlePluginPreview)
 		api.POST("/plugins/run", handlePluginRun)
-		api.POST("/plugins/upload", handlePluginUpload)
 		api.POST("/plugins/toggle", handlePluginToggle)
+		api.POST("/plugins/disable-broken", handlePluginDisableAllBroken)
+		api.POST("/plugins/cancel", handlePluginCancel)
 	}
 
 	sub, err := fs.Sub(WebFS, "frontend/dist")
@@ -115,7 +116,7 @@ func Fail(c *gin.Context, status int, msg string) {
 }
 
 func statusPayload() gin.H {
-	status, uptime, lastMsg, commit, version, buildTime, startedAt := state.Snapshot()
+	status, uptime, lastMsg, commit, version, buildTime, targetCommit, startedAt := state.Snapshot()
 	cfg := GetConfig()
 
 	port := cfg.ProxyPort
@@ -159,18 +160,19 @@ func statusPayload() gin.H {
 	}
 
 	return gin.H{
-		"name":         "DeepSeek Harness",
-		"version":      verVal,
-		"commit":       commitVal,
-		"status":       status,
-		"uptime":       uptimeVal,
-		"started_at":   startedAt,
-		"server_port":  serverPort,
-		"server_time":  time.Now().Unix(),
-		"build_time":   buildTimeVal,
-		"app_url":      appURL,
-		"pid":          pidVal,
-		"last_message": lastMsg,
+		"name":          "DeepSeek Harness",
+		"version":       verVal,
+		"commit":        commitVal,
+		"target_commit": targetCommit,
+		"status":        status,
+		"uptime":        uptimeVal,
+		"started_at":    startedAt,
+		"server_port":   serverPort,
+		"server_time":   time.Now().Unix(),
+		"build_time":    buildTimeVal,
+		"app_url":       appURL,
+		"pid":           pidVal,
+		"last_message":  lastMsg,
 	}
 }
 

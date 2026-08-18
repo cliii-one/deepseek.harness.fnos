@@ -22,11 +22,12 @@ const (
 )
 
 type HarnessState struct {
-	mu          sync.RWMutex
-	status      string
-	startTime   time.Time
-	lastMessage string
-	stateSubs   map[chan struct{}]struct{}
+	mu           sync.RWMutex
+	status       string
+	targetCommit string
+	startTime    time.Time
+	lastMessage  string
+	stateSubs    map[chan struct{}]struct{}
 }
 
 var state = &HarnessState{status: StatusStopped, stateSubs: make(map[chan struct{}]struct{})}
@@ -39,6 +40,9 @@ func (s *HarnessState) SetStatus(status, msg string) {
 	changed := s.status != status || s.lastMessage != msg
 	s.status = status
 	s.lastMessage = msg
+	if status != StatusBuilding {
+		s.targetCommit = ""
+	}
 	if becameRunning {
 		s.startTime = time.Now()
 	}
@@ -55,17 +59,29 @@ func (s *HarnessState) SetStatus(status, msg string) {
 	}
 }
 
+func (s *HarnessState) SetTargetCommit(tc string) {
+	s.mu.Lock()
+	if s.targetCommit != tc {
+		s.targetCommit = tc
+		s.mu.Unlock()
+		s.notify()
+		return
+	}
+	s.mu.Unlock()
+}
+
 func (s *HarnessState) Status() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.status
 }
 
-func (s *HarnessState) Snapshot() (status, uptime, lastMsg, commit, version, buildTime string, startedAt int64) {
+func (s *HarnessState) Snapshot() (status, uptime, lastMsg, commit, version, buildTime, targetCommit string, startedAt int64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	status = s.status
 	lastMsg = s.lastMessage
+	targetCommit = s.targetCommit
 	commit = GetCommit()
 	version = GetVersion()
 	if status == StatusRunning && !s.startTime.IsZero() {
@@ -262,7 +278,7 @@ func dshCliCmd(subArgs ...string) (string, []string) {
 
 func startLocked() error {
 	killHarnessLocked()
-	_ = enforcePluginPreferences()
+	ClearAllPluginFailures()
 
 	cfg := GetConfig()
 	port := cfg.ServerPort

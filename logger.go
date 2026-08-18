@@ -240,6 +240,7 @@ func (w *LineLogWriter) Write(p []byte) (int, error) {
 		clean := cleanLogLine(line)
 		if clean != "" {
 			w.logFunc("%s", clean)
+			ParseAndRecordStderrDiagnostics(clean)
 		}
 		w.buf.Next(idx + 1)
 	}
@@ -255,6 +256,7 @@ func (w *LineLogWriter) Flush() {
 		w.buf.Reset()
 		if clean != "" {
 			w.logFunc("%s", clean)
+			ParseAndRecordStderrDiagnostics(clean)
 		}
 	}
 }

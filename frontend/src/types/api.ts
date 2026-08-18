@@ -27,6 +27,7 @@ export interface StatusData {
   name: string
   version: string
   commit: string
+  target_commit?: string
   status: ServiceStatus
   uptime: string
   started_at: number
@@ -59,13 +60,32 @@ export interface WorkspaceData {
 }
 
 /**
+ * 插件运行状态
+ * - live: 正常作为层活跃运行中
+ * - disabled: 在 cordis.patch.yml 中被显式禁用
+ * - inert: 已安装依赖但未声明 dsh.bundle
+ * - broken: Loader 加载崩溃或存在异常
+ */
+export type PluginState = 'live' | 'disabled' | 'inert' | 'broken'
+
+/**
  * 已安装插件模型
  */
 export interface PluginItem {
   name: string
   spec?: string
   version?: string
+  state: PluginState
   layer: boolean
+  entryIds?: string[]
+  description?: string
+  author?: string
+  homepage?: string
+  license?: string
+  keywords?: string[]
+  isProtected?: boolean
+  hasBundle?: boolean
+  errorReason?: string
 }
 
 /**
@@ -74,7 +94,6 @@ export interface PluginItem {
 export interface PluginListPayload {
   profile: string
   plugins: PluginItem[]
-  builtin: string[]
   bundles: string[]
 }
 

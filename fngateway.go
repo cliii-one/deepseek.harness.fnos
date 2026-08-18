@@ -352,7 +352,7 @@ func serveFnGatewayStatusPage(w http.ResponseWriter, r *http.Request, err error)
 	title := "无法连接到后端服务"
 	desc := "服务响应异常，请检查后台运行状态"
 	badgeClass := "badge-err"
-	badgeText := "服务异常"
+	badgeText := "异常"
 	isStarting := false
 	errDetail := ""
 	if err != nil {
@@ -364,13 +364,13 @@ func serveFnGatewayStatusPage(w http.ResponseWriter, r *http.Request, err error)
 		title = "服务启动中"
 		desc = "正在准备运行环境与初始化依赖，请稍候..."
 		badgeClass = "badge-starting"
-		badgeText = "正在启动"
+		badgeText = "启动中"
 		isStarting = true
 	case StatusBuilding:
 		title = "服务构建中"
 		desc = "正在拉取镜像或构建运行环境，准备就绪后将自动进入"
 		badgeClass = "badge-starting"
-		badgeText = "正在构建"
+		badgeText = "构建中"
 		isStarting = true
 	case StatusStopped:
 		title = "服务尚未启动"

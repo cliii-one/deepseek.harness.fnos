@@ -1,6 +1,7 @@
 import type { Plugin } from 'vite'
 import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage, ServerResponse } from 'http'
+import type { PluginItem } from '../types/api'
 
 export function viteDevMock(): Plugin {
   return {
@@ -41,19 +42,91 @@ export function viteDevMock(): Plugin {
         }
       ]
 
-      let plugins = [
+      // 丰富详实的 Cordis 规范插件仿真数据集
+      let plugins: PluginItem[] = [
         {
           name: 'dsh-better-sidebar',
           version: '0.12.2',
           spec: '^0.12.2',
-          layer: true
+          state: 'live',
+          layer: true,
+          entryIds: ['better-sidebar'],
+          description: '增强型侧边栏管理工具，提供会话分组、快捷置顶与工作区快速切换功能。',
+          author: 'DeepSeek Community',
+          homepage: 'https://github.com/dsh-market/dsh-better-sidebar',
+          license: 'MIT',
+          keywords: ['sidebar', 'ui', 'workspace'],
+          isProtected: false,
+          hasBundle: true
+        },
+        {
+          name: 'dsh-vision-router',
+          version: '1.2.0',
+          spec: 'dsh-vision-router@latest',
+          state: 'broken',
+          layer: false,
+          entryIds: ['vision-router'],
+          description: '多模态视觉路由插件，支持将图像问答、OCR、定位等任务路由至本地或远程视觉提供链。',
+          author: 'ysr666',
+          homepage: 'https://github.com/ysr666/dsh-vision-router',
+          license: 'MIT',
+          keywords: ['vision', 'multimodal', 'ocr', 'image'],
+          isProtected: false,
+          hasBundle: true,
+          errorReason: 'failed to apply loader entry 3e54f87a (dsh-vision-router): keyed slot "settings.plugin.item" requires options.key'
+        },
+        {
+          name: 'dsh-tool-web-search',
+          version: '0.8.5',
+          spec: '^0.8.0',
+          state: 'live',
+          layer: true,
+          entryIds: ['tool-web-search'],
+          description: '为大模型提供实时联网搜索能力的官方扩展工具，支持多搜索引擎与内容提取。',
+          author: 'DeepSeek AI',
+          homepage: 'https://github.com/deepseek-ai/deepseek-harness',
+          license: 'MIT',
+          keywords: ['search', 'tool', 'network'],
+          isProtected: false,
+          hasBundle: true
         },
         {
           name: '@dsh-external/dsh-client-ui-skin-maid-atelier',
           version: '1.0.4',
           spec: 'github:Small-tailqwq/dsh-deep-whale#path:/maid-atelier',
-          layer: false
+          state: 'disabled',
+          layer: false,
+          entryIds: ['maid-atelier-skin'],
+          description: '女仆工坊定制深色主题皮肤包，包含专属配色、自定义字体与微动效。',
+          author: 'Small-tailqwq',
+          homepage: 'https://github.com/Small-tailqwq/dsh-deep-whale',
+          license: 'GPL-3.0',
+          keywords: ['theme', 'skin', 'ui'],
+          isProtected: false,
+          hasBundle: true
+        },
+        {
+          name: 'dsh-python-runtime',
+          version: '0.3.1',
+          spec: 'file:/plugins/python-runtime',
+          state: 'inert',
+          layer: false,
+          entryIds: ['python-runtime'],
+          description: 'Python 本地脚本执行运行时支持库（作为依赖引入，未单独声明为 Profile 独立层）。',
+          author: 'DevLab',
+          homepage: 'https://github.com/devlab/dsh-python-runtime',
+          license: 'Apache-2.0',
+          keywords: ['python', 'script', 'runtime'],
+          isProtected: false,
+          hasBundle: false
         }
+      ]
+
+      const builtin = [
+        '@deepseek-ai/dsh-base',
+        '@deepseek-ai/dsh-web-app',
+        '@deepseek-ai/dsh-tools',
+        '@deepseek-ai/dsh-agent-loop'
       ]
 
       let logs = [
@@ -245,49 +318,100 @@ export function viteDevMock(): Plugin {
           return sendJson(res, 0, '插件列表已更新', {
             profile: 'web',
             plugins,
-            builtin: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'],
-            bundles: plugins.filter((p) => p.layer).map((p) => p.name)
+            bundles: builtin.concat(plugins.filter((p) => p.layer).map((p) => p.name))
           })
+        }
+
+        if (path.endsWith('/api/plugins/status') && req.method === 'GET') {
+          return sendJson(res, 0, 'success', { running: false })
         }
 
         if (path.endsWith('/api/plugins/preview') && req.method === 'POST') {
           const body = await readJsonBody(req)
-          const cmd = body.command || ''
-          if (cmd.includes('add')) {
+          const cmd = (body.command || '').trim()
+          if (cmd.startsWith('dsh plugin') && cmd.includes('add')) {
+            const spec = cmd.split('add')[1]?.trim() || 'plugin'
             return sendJson(res, 0, 'success', {
               valid: true,
               ok: true,
               verb: 'add',
+              profile: 'web',
               command: cmd,
-              specs: [cmd.split('add')[1]?.trim() || 'plugin']
+              specs: [spec]
             })
           }
           return sendJson(res, 0, 'success', {
             valid: false,
             ok: false,
-            reason: '输入框仅支持安装命令（add）'
+            reason: '请输入标准的 dsh 命令，例如: dsh plugin --profile web add <包名>'
           })
         }
 
         if (path.endsWith('/api/plugins/toggle') && req.method === 'POST') {
           const body = await readJsonBody(req)
           const p = plugins.find((item) => item.name === body.name)
-          if (p) p.layer = body.enabled
-          const msg = body.enabled ? `已启用插件「${body.name}」` : `已禁用插件「${body.name}」`
+          if (p) {
+            if (body.enabled) {
+              p.state = 'live'
+              p.layer = true
+              p.errorReason = undefined
+            } else {
+              p.state = 'disabled'
+              p.layer = false
+              p.errorReason = undefined // 禁用后清空故障报错
+            }
+          }
+          const action = body.enabled ? '已启用' : '已禁用'
+          const msg = `${action}插件「${body.name}」（HMR 配置补丁已更新）`
           return sendJson(res, 0, msg, { name: body.name, enabled: body.enabled })
         }
 
         if (path.endsWith('/api/plugins/run') && req.method === 'POST') {
           const body = await readJsonBody(req)
-          const name = body.command?.split('add')[1]?.trim() || 'new-plugin'
+          const cmd = body.command || ''
+
+          if (cmd.includes('remove')) {
+            const name = cmd.split('remove')[1]?.trim() || ''
+            plugins = plugins.filter(p => p.name !== name)
+            broadcast('plugin', { running: true })
+            setTimeout(() => {
+              broadcast('plugin', { running: false, ok: true, message: `卸载「${name}」完成` })
+            }, 1000)
+            return sendJson(res, 0, `已开始卸载插件「${name}」`, { command: cmd })
+          }
+
+          if (cmd.includes('update')) {
+            const name = cmd.split('update')[1]?.trim() || ''
+            const p = plugins.find(item => item.name === name)
+            if (p) p.version = '1.3.0'
+            broadcast('plugin', { running: true })
+            setTimeout(() => {
+              broadcast('plugin', { running: false, ok: true, message: `更新「${name}」完成` })
+            }, 1200)
+            return sendJson(res, 0, `已开始更新插件「${name}」`, { command: cmd })
+          }
+
+          const name = cmd.split('add')[1]?.trim() || 'new-plugin'
           if (!plugins.find((p) => p.name === name)) {
-            plugins.push({ name, version: '1.0.0', spec: 'latest', layer: true })
+            plugins.push({
+              name,
+              version: '1.0.0',
+              spec: name,
+              state: 'live',
+              layer: true,
+              entryIds: [name],
+              description: '新安装的社区插件扩展。',
+              author: 'Community Contributor',
+              license: 'MIT',
+              isProtected: false,
+              hasBundle: true
+            })
           }
           broadcast('plugin', { running: true })
           setTimeout(() => {
             broadcast('plugin', { running: false, ok: true, message: '安装完成，重启服务后生效' })
           }, 1500)
-          return sendJson(res, 0, '已开始执行插件安装', { command: body.command })
+          return sendJson(res, 0, '已开始执行插件安装', { command: cmd })
         }
 
         // 5. 日志

@@ -8,10 +8,11 @@ export const usePluginStore = defineStore('plugin', () => {
   const loading = ref(false)
   const pluginBusy = ref(false)
 
-  const mode = ref<'cmd' | 'upload'>('cmd')
   const command = ref('')
-  const file = ref<File | null>(null)
   const preview = ref<PreviewResult | null>(null)
+
+  const searchKeyword = ref('')
+  const filterStatus = ref<'all' | 'live' | 'disabled' | 'inert' | 'broken'>('all')
 
   const needRestart = ref(false)
 
@@ -54,19 +55,48 @@ export const usePluginStore = defineStore('plugin', () => {
   }
 
   const canInstall = computed(() => {
-    if (pluginBusy.value) return false
-    if (mode.value === 'cmd') {
-      return Boolean(command.value.trim() && preview.value?.valid)
+    return Boolean(!pluginBusy.value && command.value.trim() && preview.value?.valid)
+  })
+
+  // 统计指标
+  const liveCount = computed(() => plugins.value.filter(p => p.state === 'live').length)
+  const disabledCount = computed(() => plugins.value.filter(p => p.state === 'disabled').length)
+  const inertCount = computed(() => plugins.value.filter(p => p.state === 'inert').length)
+  const brokenCount = computed(() => plugins.value.filter(p => p.state === 'broken').length)
+  const brokenPlugins = computed(() => plugins.value.filter(p => p.state === 'broken'))
+  const hasBrokenPlugin = computed(() => brokenPlugins.value.length > 0)
+
+  // 过滤后的插件列表
+  const filteredPlugins = computed(() => {
+    let list = plugins.value
+
+    // 状态过滤
+    if (filterStatus.value !== 'all') {
+      list = list.filter(p => p.state === filterStatus.value)
     }
-    return Boolean(file.value)
+
+    // 关键词搜索
+    const q = searchKeyword.value.trim().toLowerCase()
+    if (q) {
+      list = list.filter(p => {
+        const nameMatch = p.name.toLowerCase().includes(q)
+        const descMatch = (p.description || '').toLowerCase().includes(q)
+        const authorMatch = (p.author || '').toLowerCase().includes(q)
+        const specMatch = (p.spec || '').toLowerCase().includes(q)
+        const keywordMatch = (p.keywords || []).some(k => k.toLowerCase().includes(q))
+        return nameMatch || descMatch || authorMatch || specMatch || keywordMatch
+      })
+    }
+
+    return list
   })
 
   async function fetchPlugins(): Promise<void> {
     loading.value = true
     try {
       const res = await pluginApi.getList()
-      if (res.success && res.data && Array.isArray(res.data.plugins)) {
-        plugins.value = res.data.plugins
+      if (res.success && res.data) {
+        plugins.value = Array.isArray(res.data.plugins) ? res.data.plugins : []
       }
     } finally {
       loading.value = false
@@ -86,31 +116,19 @@ export const usePluginStore = defineStore('plugin', () => {
 
   async function installPlugin(): Promise<RequestResult<unknown>> {
     if (!canInstall.value) {
-      return { success: false, message: '请先输入有效命令或选择上传文件' }
+      return { success: false, message: '请先输入有效的安装指令' }
     }
-    if (mode.value === 'cmd') {
-      const res = await pluginApi.run(command.value.trim())
-      if (res.success) {
-        command.value = ''
-        preview.value = null
-      }
-      return res
-    } else {
-      if (!file.value) {
-        return { success: false, message: '请选择插件压缩包' }
-      }
-      const res = await pluginApi.upload(file.value)
-      if (res.success) {
-        file.value = null
-      }
-      return res
+    const res = await pluginApi.run(command.value.trim())
+    if (res.success) {
+      command.value = ''
+      preview.value = null
     }
+    return res
   }
 
   async function togglePlugin(name: string, enable: boolean): Promise<RequestResult<unknown>> {
     const res = await pluginApi.toggle(name, enable)
     if (res.success) {
-      needRestart.value = true
       await fetchPlugins()
     }
     return res
@@ -124,16 +142,35 @@ export const usePluginStore = defineStore('plugin', () => {
     return pluginApi.run(`dsh plugin --profile web remove ${name}`)
   }
 
+  async function disableAllBroken(): Promise<RequestResult<unknown>> {
+    const res = await pluginApi.disableAllBroken()
+    if (res.success) {
+      await fetchPlugins()
+    }
+    return res
+  }
+
+  async function cancelPluginOp(): Promise<RequestResult<unknown>> {
+    return pluginApi.cancel()
+  }
+
   return {
     plugins,
     loading,
     pluginBusy,
     needRestart,
-    mode,
     command,
-    file,
     preview,
+    searchKeyword,
+    filterStatus,
     canInstall,
+    liveCount,
+    disabledCount,
+    inertCount,
+    brokenCount,
+    brokenPlugins,
+    hasBrokenPlugin,
+    filteredPlugins,
     markRestartNeeded,
     clearRestartNeeded,
     setCommand,
@@ -141,6 +178,8 @@ export const usePluginStore = defineStore('plugin', () => {
     updatePluginStatus,
     installPlugin,
     togglePlugin,
+    disableAllBroken,
+    cancelPluginOp,
     updatePlugin,
     uninstallPlugin
   }
