@@ -8,6 +8,7 @@ export const useConfigStore = defineStore('config', () => {
     server_port: 2298,
     proxy_port: 2299,
     network_proxy: '',
+    access_mode: 'fngateway',
     reverse_proxy_url: '',
     access_password: ''
   })
@@ -25,6 +26,7 @@ export const useConfigStore = defineStore('config', () => {
     return (
       config.value.server_port !== savedConfig.value.server_port ||
       config.value.proxy_port !== savedConfig.value.proxy_port ||
+      (config.value.access_mode || 'fngateway') !== (savedConfig.value.access_mode || 'fngateway') ||
       (config.value.network_proxy || '') !== (savedConfig.value.network_proxy || '') ||
       (config.value.reverse_proxy_url || '') !== (savedConfig.value.reverse_proxy_url || '') ||
       (config.value.access_password || '') !== (savedConfig.value.access_password || '')
@@ -59,8 +61,12 @@ export const useConfigStore = defineStore('config', () => {
     try {
       const res = await configApi.getConfig()
       if (res.success && res.data) {
-        config.value = { ...res.data }
-        savedConfig.value = { ...res.data }
+        const data = { ...res.data }
+        if (!data.access_mode) {
+          data.access_mode = data.reverse_proxy_url ? 'custom' : 'fngateway'
+        }
+        config.value = { ...data }
+        savedConfig.value = { ...data }
         configLoaded.value = true
       } else {
         loadError.value = true

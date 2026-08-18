@@ -25,6 +25,9 @@ const basePath = "/app/deepseek-harness"
 func InitRoutes(r *gin.Engine) {
 	base := r.Group(basePath)
 
+	// 注册飞牛网关直连 WebUI 代理路由
+	InitFnGateway(base)
+
 	api := base.Group("/api")
 	{
 		api.GET("/ws", handleWS)
@@ -55,6 +58,12 @@ func InitRoutes(r *gin.Engine) {
 	})
 
 	r.NoRoute(func(c *gin.Context) {
+		// 飞牛网关直连 WebUI 请求交由网关代理处理
+		if strings.HasPrefix(c.Request.URL.Path, fnGatewayPrefix) {
+			handleFnGateway(c)
+			return
+		}
+
 		// 未知 API 路径返回 404 JSON，不回退首页
 		if strings.HasPrefix(c.Request.URL.Path, basePath+"/api/") {
 			c.JSON(http.StatusNotFound, gin.H{"message": "接口不存在"})
@@ -460,6 +469,14 @@ func handleSaveConfig(c *gin.Context) {
 	if cfg.ServerPort < 1 || cfg.ServerPort > 65535 || cfg.ProxyPort < 1 || cfg.ProxyPort > 65535 {
 		Fail(c, http.StatusBadRequest, "端口号必须在 1 ~ 65535 之间")
 		return
+	}
+
+	if cfg.AccessMode == "" {
+		if cfg.ReverseProxyURL != "" {
+			cfg.AccessMode = "custom"
+		} else {
+			cfg.AccessMode = "fngateway"
+		}
 	}
 
 	if cfg.ServerPort == cfg.ProxyPort {

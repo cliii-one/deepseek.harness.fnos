@@ -28,7 +28,7 @@ start_process() {
         return 0
     fi
 
-    log_msg "正在启动 deepseek.harness 应用进程..."
+    log_msg "正在启动 deepseek.harness 应用进程 (CMD=${CMD}, DATA_LIBRARY_PATH=${DATA_LIBRARY_PATH})..."
     bash -c "${CMD}" &
     local pid=$!
     printf "%s" "${pid}" > ${PID_FILE}

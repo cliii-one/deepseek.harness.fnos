@@ -115,6 +115,7 @@ export interface SettingsConfig {
   server_port: number
   proxy_port: number
   network_proxy: string
+  access_mode?: 'fngateway' | 'port' | 'custom'
   reverse_proxy_url: string
   access_password: string
   data_library_path?: string

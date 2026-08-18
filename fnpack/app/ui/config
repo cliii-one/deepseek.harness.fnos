@@ -20,9 +20,10 @@
             "title": "Harness WebUI",
             "icon": "images/icon_{0}.png",
             "type": "iframe",
-            "protocol": "https",
-            "port": "${wizard_port}",
-            "url": "/",
+            "protocol": "http",
+            "gatewaySocket": "web.sock",
+            "gatewayPrefix": "/app/deepseek-harness",
+            "url": "/app/deepseek-harness/fngateway/",
             "allUsers": false
         }
     }

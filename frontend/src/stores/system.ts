@@ -153,14 +153,23 @@ export const useSystemStore = defineStore('system', () => {
 
   async function openHarnessApp(): Promise<void> {
     const res = await configApi.getConfig()
-    if (res.success && res.data?.reverse_proxy_url) {
-      await trimSdk.openURL(res.data.reverse_proxy_url, '_blank')
+    const cfg = res.success ? res.data : null
+    const mode = cfg?.access_mode || (cfg?.reverse_proxy_url ? 'custom' : 'fngateway')
+
+    if (mode === 'custom' && cfg?.reverse_proxy_url) {
+      await trimSdk.openURL(cfg.reverse_proxy_url, '_blank')
       return
     }
-    const appUrl = statusData.value.app_url
-    if (appUrl?.startsWith(':')) {
-      await trimSdk.openURL(`https://${window.location.hostname}${appUrl}`, '_blank')
+
+    if (mode === 'port') {
+      const port = cfg?.proxy_port || 2299
+      await trimSdk.openURL(`https://${window.location.hostname}:${port}/`, '_blank')
+      return
     }
+
+    // 默认飞牛网关直连模式
+    const gatewayUrl = `${window.location.origin}/app/deepseek-harness/fngateway/`
+    await trimSdk.openURL(gatewayUrl, '_blank')
   }
 
   return {

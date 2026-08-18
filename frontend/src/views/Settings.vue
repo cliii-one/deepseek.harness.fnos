@@ -58,6 +58,7 @@
           <!-- 核心服务网络与端口配置卡片 -->
           <n-card title="核心服务" :bordered="false" class="shadow-sm rounded-2xl">
             <n-grid :cols="2" :x-gap="20" :y-gap="16" responsive="screen" item-responsive>
+              <!-- 第一行：内部端口 反代端口 -->
               <n-gi span="2 m:1">
                 <n-form-item label="内部监听端口" path="server_port">
                   <template #label>
@@ -108,26 +109,33 @@
                 </n-form-item>
               </n-gi>
 
+              <!-- 第二行：模式选择 反代密码 -->
               <n-gi span="2 m:1">
-                <n-form-item label="外部访问地址" path="reverse_proxy_url">
+                <n-form-item label="打开方式选择" path="access_mode">
                   <template #label>
                     <div class="flex items-center gap-1.5">
-                      <span>外部访问地址</span>
+                      <span>打开方式选择</span>
                       <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
                         <template #trigger>
                           <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
                             <Help />
                           </n-icon>
                         </template>
-                        点击概览页「进入 Harness」时跳转的绝对 URL（如 https://dsh.nas.com）
+                        控制概览页「进入 Harness」按钮的访问链路
                       </n-tooltip>
                     </div>
                   </template>
-                  <n-input
-                    v-model:value="config.reverse_proxy_url"
-                    placeholder="例如 https://dsh.example.com:2299"
-                    clearable
-                  />
+                  <n-radio-group v-model:value="config.access_mode" size="medium" class="w-full flex">
+                    <n-radio-button value="fngateway" class="!flex-1 text-center">
+                      飞牛网关
+                    </n-radio-button>
+                    <n-radio-button value="port" class="!flex-1 text-center">
+                      反代端口
+                    </n-radio-button>
+                    <n-radio-button value="custom" class="!flex-1 text-center">
+                      自定义地址
+                    </n-radio-button>
+                  </n-radio-group>
                 </n-form-item>
               </n-gi>
 
@@ -152,6 +160,30 @@
                     v-model:value="config.access_password"
                     placeholder="留空则不启用密码保护"
                     autocomplete="new-password"
+                  />
+                </n-form-item>
+              </n-gi>
+
+              <!-- 第三行：自定义外部地址输入框 (仅在选中自定义地址时动态渲染) -->
+              <n-gi v-if="config.access_mode === 'custom'" span="2">
+                <n-form-item label="自定义外部访问地址" path="reverse_proxy_url">
+                  <template #label>
+                    <div class="flex items-center gap-1.5">
+                      <span>自定义外部访问地址</span>
+                      <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
+                        <template #trigger>
+                          <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
+                            <Help />
+                          </n-icon>
+                        </template>
+                        点击概览页「进入 Harness」时跳转的绝对 URL (例如 https://dsh.nas.com:2299)
+                      </n-tooltip>
+                    </div>
+                  </template>
+                  <n-input
+                    v-model:value="config.reverse_proxy_url"
+                    placeholder="例如 https://dsh.example.com:2299"
+                    clearable
                   />
                 </n-form-item>
               </n-gi>
@@ -198,6 +230,8 @@ import {
   NGi,
   NInput,
   NInputNumber,
+  NRadioGroup,
+  NRadioButton,
   NEmpty,
   NTooltip,
   NIcon,
@@ -295,7 +329,10 @@ const rules: FormRules = {
   reverse_proxy_url: [
     {
       validator(_rule, value: string) {
-        if (!value || !value.trim()) return true
+        if (config.value.access_mode !== 'custom') return true
+        if (!value || !value.trim()) {
+          return new Error('请填写自定义外部访问地址')
+        }
         const trimmed = value.trim()
         if (!/^(http|https):\/\//i.test(trimmed)) {
           return new Error('外部访问地址需以 http:// 或 https:// 开头')
