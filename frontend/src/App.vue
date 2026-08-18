@@ -7,8 +7,9 @@
           <n-message-provider>
             <!-- 整体视口容器：Naive UI 原生 Layout -->
             <n-layout has-sider position="absolute" class="h-screen w-screen bg-[#f5f7fa] dark:bg-[#12141a]">
-              <!-- 桌面端侧边栏 Sider：Naive UI 原生 NLayoutSider -->
+              <!-- 桌面端侧边栏 Sider：Naive UI 原生 NLayoutSider；进入 WebUI 时整体折叠（沉浸式全屏） -->
               <n-layout-sider
+                v-if="tab !== 'webui'"
                 bordered
                 :width="240"
                 :native-scrollbar="false"
@@ -70,8 +71,9 @@
                     <n-back-top v-if="tab !== 'webui'" :bottom="70" :right="20" class="sm:!bottom-8 sm:!right-8" />
                   </n-layout-content>
 
-                <!-- 移动端底部导航 Tabbar：全套纯正 Naive UI 组件 -->
+                <!-- 移动端底部导航 Tabbar：进入 WebUI 时同样隐藏（沉浸式全屏） -->
                 <n-layout-footer
+                  v-if="tab !== 'webui'"
                   bordered
                   position="absolute"
                   class="sm:hidden z-50 !bg-white/95 dark:!bg-[#181b22]/95 !backdrop-blur-md px-1 pt-1 shadow-lg mobile-tabbar-footer"

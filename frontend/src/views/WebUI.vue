@@ -26,6 +26,14 @@
     <div class="absolute bottom-4 right-4 z-30 flex items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
       <n-tooltip placement="top">
         <template #trigger>
+          <n-button circle size="small" secondary title="管理面板" @click="goManage">
+            <n-icon :size="16"><Dashboard /></n-icon>
+          </n-button>
+        </template>
+        管理面板
+      </n-tooltip>
+      <n-tooltip placement="top">
+        <template #trigger>
           <n-button circle size="small" secondary type="primary" title="在新标签页中打开" @click="openExternal">
             <n-icon :size="16"><ExternalLink /></n-icon>
           </n-button>
@@ -47,8 +55,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { NButton, NIcon, NSpin, NTooltip } from 'naive-ui'
-import { Refresh, ExternalLink } from '@vicons/tabler'
+import { Refresh, ExternalLink, Dashboard } from '@vicons/tabler'
 import { configApi } from '../api'
+import { useAppStore } from '../stores/app'
 
 // 默认走飞牛网关前缀反代（同源内嵌）；custom/port 模式按配置解析
 const DEFAULT_URL = '/app/deepseek-harness/fngateway/'
@@ -56,6 +65,12 @@ const DEFAULT_URL = '/app/deepseek-harness/fngateway/'
 const loaded = ref(false)
 const frameRef = ref<HTMLIFrameElement | null>(null)
 const webuiUrl = ref(DEFAULT_URL)
+
+// 侧边栏在 WebUI 视图已整体隐藏，通过悬浮按钮切回管理面板（概览）
+const appStore = useAppStore()
+function goManage() {
+  appStore.setTab('overview')
+}
 
 // 按访问模式解析 WebUI 地址：fngateway 同源内嵌，custom 用外部地址，port 用代理端口
 async function resolveWebUIUrl(): Promise<string> {
