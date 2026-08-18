@@ -1,12 +1,12 @@
 <template>
-  <!-- WebUI 沉浸式视图：DSH 聊天界面铺满整个内容区，工具按钮悬浮于左上角 -->
+  <!-- WebUI 沉浸式视图：DSH 聊天界面铺满整个内容区，工具按钮悬浮于右下角（不遮挡左上角 logo） -->
   <div class="w-full h-full relative flex-1 min-h-0 overflow-hidden bg-white">
 
-    <!-- 左上角悬浮工具按钮：仅在 WebUI 视图显示（管理界面不出现） -->
+    <!-- 右下角悬浮工具按钮：仅在 WebUI 视图显示（管理界面不出现） -->
     <div
-      class="absolute left-4 top-4 z-30 flex items-center gap-1.5 p-1 rounded-xl bg-white/85 dark:bg-[#181b22]/85 backdrop-blur-md shadow-sm border border-slate-200/70 dark:border-white/10 opacity-60 hover:opacity-100 transition-opacity"
+      class="absolute right-4 bottom-4 z-30 flex items-center gap-1.5 p-1 rounded-xl bg-white/85 dark:bg-[#181b22]/85 backdrop-blur-md shadow-sm border border-slate-200/70 dark:border-white/10 opacity-60 hover:opacity-100 transition-opacity"
     >
-      <n-tooltip placement="bottom">
+      <n-tooltip placement="top">
         <template #trigger>
           <n-button quaternary circle size="small" title="返回管理面板" @click="goManage">
             <n-icon :size="17"><Dashboard /></n-icon>
@@ -14,7 +14,7 @@
         </template>
         返回管理面板
       </n-tooltip>
-      <n-tooltip placement="bottom">
+      <n-tooltip placement="top">
         <template #trigger>
           <n-button quaternary circle size="small" title="在新标签页中打开" @click="openExternal">
             <n-icon :size="17"><ExternalLink /></n-icon>
@@ -22,7 +22,7 @@
         </template>
         新标签页打开
       </n-tooltip>
-      <n-tooltip placement="bottom">
+      <n-tooltip placement="top">
         <template #trigger>
           <n-button quaternary circle size="small" title="重新加载" @click="reloadFrame">
             <n-icon :size="17"><Refresh /></n-icon>
