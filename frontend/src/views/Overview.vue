@@ -3,7 +3,7 @@
     <!-- 桌面端页头 -->
     <n-page-header class="hidden sm:block">
       <template #title>
-        <div class="text-xl font-bold text-slate-800 tracking-tight">概览</div>
+        <div class="text-xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">概览</div>
       </template>
     </n-page-header>
 
@@ -13,14 +13,14 @@
         <!-- 上半部分：应用标题/版本 + 右侧主操作（进入 Harness） -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div class="space-y-1 min-w-0 flex-1">
-            <div class="text-lg sm:text-xl font-bold text-slate-800 tracking-tight leading-tight truncate">
+            <div class="text-lg sm:text-xl font-bold text-slate-800 dark:text-slate-100 tracking-tight leading-tight truncate">
               {{ statusData.name || 'DeepSeek Harness' }}
             </div>
-            <div class="text-xs sm:text-sm text-slate-400 flex items-center gap-1.5 sm:gap-2 flex-nowrap min-w-0">
+            <div class="text-xs sm:text-sm text-slate-400 dark:text-slate-500 flex items-center gap-1.5 sm:gap-2 flex-nowrap min-w-0">
               <span class="shrink-0">版本: {{ statusData.version || '-' }}</span>
-              <span class="text-slate-200 shrink-0 select-none">|</span>
+              <span class="text-slate-200 dark:text-slate-700 shrink-0 select-none">|</span>
               <span class="shrink-0 font-mono">Commit: {{ statusData.commit || '-' }}</span>
-              <span class="text-slate-200 shrink-0 select-none">|</span>
+              <span class="text-slate-200 dark:text-slate-700 shrink-0 select-none">|</span>
               <span
                 class="min-w-0 truncate"
                 :title="statusData.build_time ? `Build: ${statusData.build_time}` : ''"
@@ -48,7 +48,7 @@
         <n-grid :cols="3" :x-gap="16" :y-gap="12" class="text-center" responsive="screen" item-responsive>
           <n-gi>
             <div
-              class="py-3 sm:py-3.5 px-3 rounded-2xl bg-slate-50 border border-slate-100/80 h-full flex flex-col justify-center transition-all duration-200 hover:border-slate-200/90 hover:bg-slate-100/50">
+              class="py-3 sm:py-3.5 px-3 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-100/80 dark:border-white/[0.06] h-full flex flex-col justify-center transition-all duration-200 hover:border-slate-200/90 dark:hover:border-white/[0.12] hover:bg-slate-100/50 dark:hover:bg-white/[0.06]">
               <n-statistic label="运行状态">
                 <template #default>
                   <div class="flex justify-center mt-1">
@@ -66,10 +66,10 @@
 
           <n-gi>
             <div
-              class="py-3 sm:py-3.5 px-3 rounded-2xl bg-slate-50 border border-slate-100/80 h-full flex flex-col justify-center transition-all duration-200 hover:border-slate-200/90 hover:bg-slate-100/50">
+              class="py-3 sm:py-3.5 px-3 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-100/80 dark:border-white/[0.06] h-full flex flex-col justify-center transition-all duration-200 hover:border-slate-200/90 dark:hover:border-white/[0.12] hover:bg-slate-100/50 dark:hover:bg-white/[0.06]">
               <n-statistic label="运行时间">
                 <template #default>
-                  <div class="text-sm sm:text-base font-bold text-slate-700 truncate mt-0.5">
+                  <div class="text-sm sm:text-base font-bold text-slate-700 dark:text-slate-200 truncate mt-0.5">
                     {{ uptimeText }}
                   </div>
                 </template>
@@ -79,10 +79,10 @@
 
           <n-gi>
             <div
-              class="py-3 sm:py-3.5 px-3 rounded-2xl bg-slate-50 border border-slate-100/80 h-full flex flex-col justify-center transition-all duration-200 hover:border-slate-200/90 hover:bg-slate-100/50">
+              class="py-3 sm:py-3.5 px-3 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-100/80 dark:border-white/[0.06] h-full flex flex-col justify-center transition-all duration-200 hover:border-slate-200/90 dark:hover:border-white/[0.12] hover:bg-slate-100/50 dark:hover:bg-white/[0.06]">
               <n-statistic label="进程 PID">
                 <template #default>
-                  <div class="text-sm sm:text-base font-bold text-slate-700 truncate mt-0.5"
+                  <div class="text-sm sm:text-base font-bold text-slate-700 dark:text-slate-200 truncate mt-0.5"
                     :title="isRunning && statusData.pid ? String(statusData.pid) : '-'">
                     {{ isRunning && statusData.pid ? statusData.pid : '-' }}
                   </div>
@@ -96,7 +96,7 @@
 
     <!-- 运行控制区 -->
     <div class="space-y-4">
-      <h2 class="text-lg font-bold text-slate-800 tracking-tight">运行控制</h2>
+      <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100 tracking-tight">运行控制</h2>
       <n-grid v-auto-animate :cols="4" :x-gap="16" :y-gap="16" responsive="screen" item-responsive>
         <n-gi span="2 m:1" v-for="a in actionCards" :key="a.action">
           <n-tooltip trigger="hover" :disabled="isTouch || a.disabled || a.loading">
@@ -127,7 +127,7 @@
                             <component :is="a.icon" />
                           </n-icon>
                         </div>
-                        <span class="text-sm font-medium text-slate-700 group-hover:text-slate-900 transition-colors duration-150">
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors duration-150">
                           {{ a.label }}
                         </span>
                       </div>
@@ -155,7 +155,7 @@
                         <component :is="a.icon" />
                       </n-icon>
                     </div>
-                    <span class="text-sm font-medium text-slate-700 group-hover:text-slate-900 transition-colors duration-150">
+                    <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors duration-150">
                       {{ a.label }}
                     </span>
                   </div>
@@ -253,8 +253,8 @@ const actionCards = computed<ActionCard[]>(() => [
       icon: PlayerStop,
       label: '停止服务',
       desc: '终止 DeepSeek Harness 后台运行进程',
-      iconBg: 'bg-rose-50 group-hover:bg-rose-100',
-      iconColor: 'text-rose-600',
+      iconBg: 'bg-rose-50 dark:bg-rose-950/30 group-hover:bg-rose-100 dark:group-hover:bg-rose-950/50',
+      iconColor: 'text-rose-600 dark:text-rose-400',
       disabled: isActionLocked.value,
       loading: activeAction.value === 'stop',
       confirmText: '确定要停止 DeepSeek Harness 服务吗？'
@@ -264,8 +264,8 @@ const actionCards = computed<ActionCard[]>(() => [
       icon: PlayerPlay,
       label: isStarting.value ? '服务启动中' : '启动服务',
       desc: isStarting.value ? '正在拉起服务主进程并等待就绪…' : '拉起 DeepSeek Harness 后台核心服务',
-      iconBg: 'bg-emerald-50 group-hover:bg-emerald-100',
-      iconColor: 'text-emerald-600',
+      iconBg: 'bg-emerald-50 dark:bg-emerald-950/30 group-hover:bg-emerald-100 dark:group-hover:bg-emerald-950/50',
+      iconColor: 'text-emerald-600 dark:text-emerald-400',
       disabled: isActionLocked.value,
       loading: isStarting.value || activeAction.value === 'start'
     },
@@ -274,8 +274,8 @@ const actionCards = computed<ActionCard[]>(() => [
     icon: Refresh,
     label: '重启服务',
     desc: '热重启后台进程，即时生效最新配置或插件变更',
-    iconBg: 'bg-amber-50 group-hover:bg-amber-100',
-    iconColor: 'text-amber-600',
+    iconBg: 'bg-amber-50 dark:bg-amber-950/30 group-hover:bg-amber-100 dark:group-hover:bg-amber-950/50',
+    iconColor: 'text-amber-600 dark:text-amber-400',
     disabled: !isRestarting.value && (!isRunning.value || isActionLocked.value),
     loading: isRestarting.value
   },
@@ -284,8 +284,8 @@ const actionCards = computed<ActionCard[]>(() => [
     icon: Download,
     label: '拉取更新',
     desc: '检查远程代码更新，检测到新版本时自动同步依赖并构建',
-    iconBg: 'bg-blue-50 group-hover:bg-blue-100',
-    iconColor: 'text-fnos-blue',
+    iconBg: 'bg-blue-50 dark:bg-blue-950/30 group-hover:bg-blue-100 dark:group-hover:bg-blue-950/50',
+    iconColor: 'text-fnos-blue dark:text-blue-400',
     disabled: isActionLocked.value && activeAction.value !== 'upgrade',
     loading: activeAction.value === 'upgrade' || (isBuilding.value && activeAction.value !== 'rebuild')
   },
@@ -294,8 +294,8 @@ const actionCards = computed<ActionCard[]>(() => [
     icon: Tools,
     label: '强制重建',
     desc: '重新拉取全部依赖并完整编译，用于修复异常损坏的环境',
-    iconBg: 'bg-purple-50 group-hover:bg-purple-100',
-    iconColor: 'text-purple-600',
+    iconBg: 'bg-purple-50 dark:bg-purple-950/30 group-hover:bg-purple-100 dark:group-hover:bg-purple-950/50',
+    iconColor: 'text-purple-600 dark:text-purple-400',
     disabled: isActionLocked.value && activeAction.value !== 'rebuild',
     loading: activeAction.value === 'rebuild',
     confirmText: '强制重建将重新拉取依赖并编译，耗时较长，确定继续？'

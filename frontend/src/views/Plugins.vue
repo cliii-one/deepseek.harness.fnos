@@ -3,8 +3,8 @@
     <!-- 同行页头与操作区 -->
     <div class="flex items-center justify-between gap-3 w-full">
       <div class="flex items-baseline gap-2.5">
-        <h1 class="text-xl font-bold text-slate-800 tracking-tight">插件管理</h1>
-        <span v-if="plugins.length" class="text-xs text-slate-400 font-medium">
+        <h1 class="text-xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">插件管理</h1>
+        <span v-if="plugins.length" class="text-xs text-slate-400 dark:text-slate-500 font-medium">
           已安装 {{ plugins.length }} 个
         </span>
       </div>
@@ -40,7 +40,7 @@
     <n-card :bordered="false" class="shadow-sm">
       <template #header>
         <div class="flex items-center justify-between w-full">
-          <span class="text-base font-bold text-slate-800">安装新插件</span>
+          <span class="text-base font-bold text-slate-800 dark:text-slate-100">安装新插件</span>
           <n-button type="primary" :loading="busy" :disabled="!canInstall" @click="handleInstall" class="px-5">
             <template #icon v-if="!busy">
               <n-icon>
@@ -61,17 +61,17 @@
               <n-input :value="command" @update:value="pluginStore.setCommand" :disabled="busy"
                 placeholder="例如: dsh plugin --profile web add dshmarket" clearable>
                 <template #prefix>
-                  <n-icon class="text-slate-400">
+                  <n-icon class="text-slate-400 dark:text-slate-500">
                     <Terminal2 />
                   </n-icon>
                 </template>
               </n-input>
-              <div class="flex items-center justify-between gap-2 text-[11px] text-slate-400 pl-1">
+              <div class="flex items-center justify-between gap-2 text-[11px] text-slate-400 dark:text-slate-500 pl-1">
                 <span class="truncate">支持: npm 包、@scoped 包、github:user/repo</span>
                 <a
                   href="javascript:void(0)"
                   @click="openMarketplace"
-                  class="text-fnos-blue hover:underline inline-flex items-center gap-0.5 shrink-0 select-none font-medium cursor-pointer"
+                  class="text-fnos-blue dark:text-blue-400 hover:underline inline-flex items-center gap-0.5 shrink-0 select-none font-medium cursor-pointer"
                 >
                   <span>浏览插件市场</span>
                   <n-icon :size="12">
@@ -101,15 +101,15 @@
               :default-upload="false" @change="handleUploadChange" :disabled="busy">
               <n-upload-dragger class="!py-6 transition-all duration-200 hover:border-fnos-blue/60">
                 <div class="flex flex-col items-center justify-center gap-2">
-                  <div class="w-12 h-12 rounded-2xl bg-blue-50 text-fnos-blue flex items-center justify-center transition-transform duration-200 group-hover:scale-110">
+                  <div class="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/30 text-fnos-blue dark:text-blue-400 flex items-center justify-center transition-transform duration-200 group-hover:scale-110">
                     <n-icon :size="26">
                       <Upload />
                     </n-icon>
                   </div>
-                  <div class="text-sm font-medium text-slate-700">
+                  <div class="text-sm font-medium text-slate-700 dark:text-slate-200">
                     点击或拖拽插件压缩包到此处
                   </div>
-                  <div class="text-xs text-slate-400">
+                  <div class="text-xs text-slate-400 dark:text-slate-500">
                     支持 .tgz / .zip 格式压缩包（上限 64MB）
                   </div>
                 </div>
@@ -125,7 +125,7 @@
       <template #header>
         <div class="flex items-center justify-between w-full">
           <div class="flex items-center gap-2">
-            <span class="text-base font-bold text-slate-800">已安装插件</span>
+            <span class="text-base font-bold text-slate-800 dark:text-slate-100">已安装插件</span>
             <n-badge :value="plugins.length" type="info" />
           </div>
           <n-button secondary size="small" :loading="loading || busy" @click="handleRefresh" class="transition-transform duration-150 active:scale-95">
@@ -145,25 +145,25 @@
         <div v-if="!plugins.length" class="py-12 text-center">
           <n-empty :description="loading ? '正在获取插件列表…' : '暂无已安装插件'">
             <template #icon>
-              <n-icon :size="48" class="text-slate-300">
+              <n-icon :size="48" class="text-slate-300 dark:text-slate-600">
                 <Puzzle />
               </n-icon>
             </template>
             <template #extra>
-              <span class="text-xs text-slate-400">在上方输入命令或上传压缩包进行安装</span>
+              <span class="text-xs text-slate-400 dark:text-slate-500">在上方输入命令或上传压缩包进行安装</span>
             </template>
           </n-empty>
         </div>
 
         <!-- 插件列表 -->
-        <n-list v-else hoverable class="divide-y divide-slate-100" v-auto-animate>
+        <n-list v-else hoverable class="divide-y divide-slate-100 dark:divide-white/[0.06]" v-auto-animate>
           <n-list-item v-for="p in plugins" :key="p.name" class="!py-3.5 transition-colors duration-150">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full min-w-0">
               <!-- 信息区：第一行与第二行（自适应收缩与截断保护） -->
               <div class="flex-1 min-w-0 space-y-1.5">
                 <!-- 第一行：标题、版本、状态 -->
                 <div class="flex items-center gap-2 w-full min-w-0">
-                  <span class="text-sm font-bold text-slate-800 truncate min-w-0" :title="p.name">
+                  <span class="text-sm font-bold text-slate-800 dark:text-slate-100 truncate min-w-0" :title="p.name">
                     {{ p.name }}
                   </span>
                   <n-tag v-if="p.version" size="tiny" round :bordered="false" class="shrink-0 font-mono">
@@ -175,7 +175,7 @@
                 </div>
 
                 <!-- 第二行：来源（单行超出截断与浮动提示） -->
-                <div v-if="p.spec" class="text-xs text-slate-400 font-mono truncate w-full min-w-0 block" :title="p.spec">
+                <div v-if="p.spec" class="text-xs text-slate-400 dark:text-slate-500 font-mono truncate w-full min-w-0 block" :title="p.spec">
                   {{ p.spec }}
                 </div>
               </div>
@@ -185,8 +185,8 @@
                 class="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto shrink-0 pt-0.5 sm:pt-0">
                 <!-- Switch 开关启停胶囊 -->
                 <div
-                  class="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 shrink-0 transition-colors duration-150 hover:bg-slate-100/70">
-                  <span class="text-xs text-slate-500 select-none">{{ p.layer ? '已启用' : '已禁用' }}</span>
+                  class="flex items-center gap-1.5 bg-slate-50 dark:bg-white/[0.04] px-2.5 py-1 rounded-lg border border-slate-100 dark:border-white/[0.06] shrink-0 transition-colors duration-150 hover:bg-slate-100/70 dark:hover:bg-white/[0.08]">
+                  <span class="text-xs text-slate-500 dark:text-slate-400 select-none">{{ p.layer ? '已启用' : '已禁用' }}</span>
                   <n-switch size="small" :value="p.layer" :disabled="busy"
                     @update:value="(val) => handleToggle(p.name, val)" />
                 </div>

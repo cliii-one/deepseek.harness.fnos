@@ -2,7 +2,7 @@
   <div class="w-full flex-1 flex flex-col gap-4 sm:gap-6">
     <!-- 同行页头与操作区 -->
     <div class="flex items-center justify-between gap-3 w-full">
-      <h1 class="text-xl font-bold text-slate-800 tracking-tight">应用设置</h1>
+      <h1 class="text-xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">应用设置</h1>
 
       <!-- 右侧同行操作按钮组 -->
       <div v-auto-animate class="flex items-center gap-2">
@@ -66,7 +66,7 @@
                       <span>内部监听端口</span>
                       <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
                         <template #trigger>
-                          <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
+                          <n-icon size="14" class="text-slate-400 dark:text-slate-500 cursor-help transition-colors active:text-fnos-blue dark:active:text-blue-400">
                             <Help />
                           </n-icon>
                         </template>
@@ -91,7 +91,7 @@
                       <span>反向代理端口</span>
                       <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
                         <template #trigger>
-                          <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
+                          <n-icon size="14" class="text-slate-400 dark:text-slate-500 cursor-help transition-colors active:text-fnos-blue dark:active:text-blue-400">
                             <Help />
                           </n-icon>
                         </template>
@@ -117,7 +117,7 @@
                       <span>打开方式选择</span>
                       <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
                         <template #trigger>
-                          <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
+                          <n-icon size="14" class="text-slate-400 dark:text-slate-500 cursor-help transition-colors active:text-fnos-blue dark:active:text-blue-400">
                             <Help />
                           </n-icon>
                         </template>
@@ -146,7 +146,7 @@
                       <span>访问控制密码</span>
                       <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
                         <template #trigger>
-                          <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
+                          <n-icon size="14" class="text-slate-400 dark:text-slate-500 cursor-help transition-colors active:text-fnos-blue dark:active:text-blue-400">
                             <Help />
                           </n-icon>
                         </template>
@@ -172,7 +172,7 @@
                       <span>自定义外部访问地址</span>
                       <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
                         <template #trigger>
-                          <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
+                          <n-icon size="14" class="text-slate-400 dark:text-slate-500 cursor-help transition-colors active:text-fnos-blue dark:active:text-blue-400">
                             <Help />
                           </n-icon>
                         </template>
@@ -198,7 +198,7 @@
                   <span>网络代理地址 (HTTP / SOCKS5)</span>
                   <n-tooltip :trigger="isTouch ? 'click' : 'hover'">
                     <template #trigger>
-                      <n-icon size="14" class="text-slate-400 cursor-help transition-colors active:text-fnos-blue">
+                      <n-icon size="14" class="text-slate-400 dark:text-slate-500 cursor-help transition-colors active:text-fnos-blue dark:active:text-blue-400">
                         <Help />
                       </n-icon>
                     </template>

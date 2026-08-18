@@ -3,8 +3,8 @@
     <!-- 页头 -->
     <div class="flex items-center justify-between gap-3">
       <div class="flex items-baseline gap-2.5">
-        <h1 class="text-lg sm:text-xl font-bold text-slate-800 tracking-tight">工作区</h1>
-        <span v-if="items.length" class="text-xs text-slate-400 font-medium">
+        <h1 class="text-lg sm:text-xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">工作区</h1>
+        <span v-if="items.length" class="text-xs text-slate-400 dark:text-slate-500 font-medium">
           共 {{ items.length }} 个
         </span>
       </div>
@@ -31,12 +31,12 @@
       <n-card v-if="!items.length" :bordered="false" class="py-12 text-center shadow-sm rounded-2xl">
         <n-empty description="暂无工作区数据">
           <template #icon>
-            <n-icon :size="48" class="text-slate-300">
+            <n-icon :size="48" class="text-slate-300 dark:text-slate-600">
               <Folder />
             </n-icon>
           </template>
           <template #extra>
-            <span class="text-xs text-slate-400">请先运行 DeepSeek Harness 并在客户端创建工作区</span>
+            <span class="text-xs text-slate-400 dark:text-slate-500">请先运行 DeepSeek Harness 并在客户端创建工作区</span>
           </template>
         </n-empty>
       </n-card>
@@ -52,7 +52,7 @@
                 <n-tooltip trigger="hover" :disabled="isTouch">
                   <template #trigger>
                     <div
-                      class="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-blue-50 text-slate-500 group-hover:text-fnos-blue flex items-center justify-center transition-all duration-200 group-hover:scale-105"
+                      class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/[0.06] group-hover:bg-blue-50 dark:group-hover:bg-blue-950/40 text-slate-500 dark:text-slate-400 group-hover:text-fnos-blue dark:group-hover:text-blue-400 flex items-center justify-center transition-all duration-200 group-hover:scale-105"
                     >
                       <n-icon :size="22">
                         <Folder />
@@ -65,7 +65,7 @@
 
               <!-- 标题 -->
               <template #header>
-                <div class="text-sm font-semibold text-slate-800 truncate transition-colors group-hover:text-fnos-blue">
+                <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate transition-colors group-hover:text-fnos-blue dark:group-hover:text-blue-400">
                   <n-ellipsis :line-clamp="1" :tooltip="!isTouch">
                     {{ item.title || item.workspaceId || '-' }}
                   </n-ellipsis>
@@ -86,7 +86,7 @@
 
               <!-- 描述：路径（仅在截断时由 n-ellipsis 精准提示） -->
               <template #description>
-                <div class="text-xs text-slate-400 mt-1">
+                <div class="text-xs text-slate-400 dark:text-slate-500 mt-1">
                   <n-ellipsis :line-clamp="1" :tooltip="!isTouch">
                     {{ item.path || '-' }}
                   </n-ellipsis>
@@ -95,7 +95,7 @@
 
               <!-- 底部：左侧更新时间，右侧创建时间（全部统一 NTooltip） -->
               <template #footer>
-                <div class="flex items-center justify-between gap-2 text-[11px] text-slate-400 pt-0.5 w-full min-w-0">
+                <div class="flex items-center justify-between gap-2 text-[11px] text-slate-400 dark:text-slate-500 pt-0.5 w-full min-w-0">
                   <!-- 左侧：更新时间 -->
                   <n-tooltip v-if="item.updatedAt" trigger="hover" :disabled="isTouch">
                     <template #trigger>
@@ -112,7 +112,7 @@
                   <!-- 右侧：创建时间 -->
                   <n-tooltip v-if="item.createdAt" trigger="hover" :disabled="isTouch">
                     <template #trigger>
-                      <div class="flex items-center gap-1 text-slate-400/80 min-w-0 truncate justify-end cursor-default">
+                      <div class="flex items-center gap-1 text-slate-400/80 dark:text-slate-500 min-w-0 truncate justify-end cursor-default">
                         <n-icon :size="12" class="shrink-0">
                           <Calendar />
                         </n-icon>

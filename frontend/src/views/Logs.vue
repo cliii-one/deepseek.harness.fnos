@@ -5,7 +5,7 @@
       content-style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; padding-top: 0;">
       <!-- 标题与操作栏 -->
       <template #header>
-        <span class="text-base sm:text-lg font-bold text-slate-800 tracking-tight">运行日志</span>
+        <span class="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100 tracking-tight">运行日志</span>
       </template>
 
       <template #header-extra>
@@ -52,18 +52,18 @@
         <!-- Naive UI 原生日志组件：自适应撑满卡片高度并在内部滚动，支持 highlight.js 语法高亮与鼠标划选复制 -->
         <n-log ref="logInstRef" :log="displayedText" :hljs="hljs" language="harness-log"
           :font-size="12" :line-height="1.5" trim
-          class="flex-1 min-h-0 bg-slate-50 rounded-xl p-3 sm:p-4 border border-slate-100/80 select-text cursor-text overflow-hidden"
+          class="flex-1 min-h-0 bg-slate-50 dark:bg-[#12141a] rounded-xl p-3 sm:p-4 border border-slate-100/80 dark:border-white/[0.08] select-text cursor-text overflow-hidden"
           style="height: 100%;" />
 
         <!-- 正中央优雅居中加载遮罩 -->
         <transition name="fade">
           <div
             v-if="fetching"
-            class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-50/85 backdrop-blur-[1px] rounded-xl pointer-events-none"
+            class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-50/85 dark:bg-[#12141a]/85 backdrop-blur-[1px] rounded-xl pointer-events-none"
           >
             <n-spin size="medium">
               <template #description>
-                <span class="text-xs text-slate-500 font-medium mt-2">正在获取运行日志…</span>
+                <span class="text-xs text-slate-500 dark:text-slate-400 font-medium mt-2">正在获取运行日志…</span>
               </template>
             </n-spin>
           </div>
@@ -75,9 +75,9 @@
             <n-tooltip trigger="hover" placement="left" :disabled="isTouch">
               <template #trigger>
                 <n-button size="small" secondary @click="manualScrollToBottom"
-                  class="!w-7 !h-7 sm:!w-8 sm:!h-8 !p-0 shadow-sm border border-slate-200/90 bg-white/95 transition-transform duration-150 active:scale-90">
+                  class="!w-7 !h-7 sm:!w-8 sm:!h-8 !p-0 shadow-sm border border-slate-200/90 dark:border-white/[0.1] bg-white/95 dark:bg-[#1e212b]/95 transition-transform duration-150 active:scale-90">
                   <div class="flex items-center justify-center">
-                    <n-icon :size="16" class="text-slate-600">
+                    <n-icon :size="16" class="text-slate-600 dark:text-slate-300">
                       <ArrowDown />
                     </n-icon>
                   </div>
@@ -234,32 +234,49 @@ onUnmounted(() => {
   color: #ef4444;
   font-weight: 600;
 }
-
 :deep(.hljs-keyword) {
   color: #f59e0b;
   font-weight: 600;
 }
-
 :deep(.hljs-meta) {
   color: #2563eb;
   font-weight: 600;
 }
-
 :deep(.hljs-comment) {
   color: #94a3b8;
 }
-
 :deep(.hljs-number) {
   color: #0891b2;
 }
-
 :deep(.hljs-string) {
   color: #059669;
 }
-
 :deep(.hljs-link) {
   color: #4f46e5;
   text-decoration: underline;
+}
+
+/* 深色模式下语法高亮对比度调优 */
+html.dark :deep(.hljs-type) {
+  color: #f87171;
+}
+html.dark :deep(.hljs-keyword) {
+  color: #fbbf24;
+}
+html.dark :deep(.hljs-meta) {
+  color: #60a5fa;
+}
+html.dark :deep(.hljs-comment) {
+  color: #64748b;
+}
+html.dark :deep(.hljs-number) {
+  color: #38bdf8;
+}
+html.dark :deep(.hljs-string) {
+  color: #34d399;
+}
+html.dark :deep(.hljs-link) {
+  color: #818cf8;
 }
 
 /* 居中加载遮罩淡入淡出动效 */
