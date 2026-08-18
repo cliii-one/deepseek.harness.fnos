@@ -37,14 +37,33 @@
                   />
                 </div>
 
-                <!-- 底部设置项：统一采用 NMenu 驱动交互与主题高亮 -->
-                <div class="p-3">
-                  <n-divider class="!my-2" />
-                  <n-menu
-                    :value="tab"
-                    :options="settingsMenuOptions"
-                    @update:value="handleMenuSelect"
-                  />
+                <!-- 底部设置项 + 常用工具：设置按钮后面跟三个纯图标工具（进入 WebUI 时随侧边栏整体隐藏） -->
+                <div class="p-3 flex flex-col gap-3">
+                  <div>
+                    <n-divider class="!my-2" />
+                    <n-menu
+                      :value="tab"
+                      :options="settingsMenuOptions"
+                      @update:value="handleMenuSelect"
+                    />
+                  </div>
+                  <n-flex justify="space-around" align="center" :wrap="false" class="px-1">
+                    <n-button quaternary circle size="small" title="管理面板（回到概览）" @click="goOverview">
+                      <template #icon>
+                        <n-icon :size="18"><Dashboard /></n-icon>
+                      </template>
+                    </n-button>
+                    <n-button quaternary circle size="small" title="新标签页打开 Harness" @click="openHarnessTab">
+                      <template #icon>
+                        <n-icon :size="18"><ExternalLink /></n-icon>
+                      </template>
+                    </n-button>
+                    <n-button quaternary circle size="small" title="刷新页面" @click="reloadPage">
+                      <template #icon>
+                        <n-icon :size="18"><Refresh /></n-icon>
+                      </template>
+                    </n-button>
+                  </n-flex>
                 </div>
               </n-layout-sider>
 
@@ -147,7 +166,9 @@ import {
   Folder,
   Puzzle,
   FileText,
-  Settings
+  Settings,
+  ExternalLink,
+  Refresh
 } from '@vicons/tabler'
 import { getThemeOverrides } from './theme'
 import Overview from './views/Overview.vue'
@@ -237,6 +258,21 @@ watch(tab, (newTab) => {
 
 const handleMenuSelect = (key: string) => {
   tab.value = key as TabKey
+}
+
+// 侧边栏底部工具：管理面板（回到概览）
+function goOverview() {
+  tab.value = 'overview'
+}
+
+// 侧边栏底部工具：新标签页打开 DSH WebUI（独立窗口聊天，与内嵌互不影响）
+function openHarnessTab() {
+  window.open('/app/deepseek-harness/fngateway/', '_blank')
+}
+
+// 侧边栏底部工具：刷新管理面板当前视图
+function reloadPage() {
+  window.location.reload()
 }
 
 const currentView = computed(() => views[tab.value])

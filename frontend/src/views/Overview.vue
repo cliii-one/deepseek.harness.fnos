@@ -188,12 +188,7 @@
 
     <!-- 底部状态通知区 -->
     <div v-auto-animate class="space-y-3">
-      <!-- 实时构建进度 / 启动中 / 错误信息 -->
-      <n-alert v-if="statusData.last_message" :type="isBuilding || isStarting ? 'info' : 'warning'" :show-icon="true" class="rounded-2xl shadow-sm">
-        {{ statusData.last_message }}
-      </n-alert>
-
-      <!-- 实时连接断开提示 -->
+      <!-- 实时连接断开提示（保留：需要用户感知） -->
       <n-alert v-if="!wsConnected" type="error" :show-icon="true" class="rounded-2xl shadow-sm">
         实时连接已断开，正在自动重连…
       </n-alert>
