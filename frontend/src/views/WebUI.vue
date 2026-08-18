@@ -1,62 +1,52 @@
 <template>
-  <!-- WebUI 内嵌视图：管理面板内直接嵌入 DSH 聊天界面（fngateway 网关同源，无需额外鉴权） -->
-  <div class="w-full h-[calc(100dvh-82px)] sm:h-[calc(100dvh-48px)] flex flex-col min-h-0 overflow-hidden">
-    <n-card :bordered="false" class="flex-1 flex flex-col shadow-sm rounded-2xl min-h-0 overflow-hidden"
-      content-style="display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; padding: 0;">
-      <!-- 标题与操作栏 -->
-      <template #header>
-        <span class="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100 tracking-tight">DeepSeek Harness WebUI</span>
-      </template>
+  <!-- WebUI 沉浸式视图：DSH 聊天界面铺满整个内容区，无卡片/标题装饰 -->
+  <div class="w-full h-full relative flex-1 min-h-0 overflow-hidden">
 
-      <template #header-extra>
-        <n-flex :size="8" align="center" :wrap="false">
-          <!-- 重新加载内嵌页面 -->
-          <n-button size="small" secondary title="重新加载" class="!px-2" @click="reloadFrame">
-            <n-icon :size="16">
-              <Refresh />
-            </n-icon>
-          </n-button>
-
-          <!-- 新标签页打开：iframe 内受限时（弹窗/全屏/快捷键）可跳出独立页 -->
-          <n-button size="small" secondary type="primary" title="在新标签页中打开" class="!px-2 sm:!px-2.5"
-            @click="openExternal">
-            <div class="flex items-center justify-center gap-1">
-              <n-icon :size="16">
-                <ExternalLink />
-              </n-icon>
-              <span class="hidden sm:inline">新标签页打开</span>
-            </div>
-          </n-button>
-        </n-flex>
-      </template>
-
-      <!-- iframe 容器：撑满卡片并内部滚动 -->
-      <div class="relative flex-1 min-h-0 flex flex-col overflow-hidden">
-        <!-- 加载中遮罩（iframe onload 后淡出） -->
-        <transition name="fade">
-          <div v-if="!loaded" class="absolute inset-0 z-10 flex items-center justify-center bg-slate-50/80 dark:bg-[#12141a]/80 backdrop-blur-sm">
-            <div class="flex items-center gap-2 text-slate-400 dark:text-slate-500">
-              <n-spin :size="18" />
-              <span class="text-sm">正在加载 Harness WebUI…</span>
-            </div>
-          </div>
-        </transition>
-
-        <iframe
-          ref="frameRef"
-          :src="webuiUrl"
-          class="flex-1 min-h-0 w-full border-0"
-          style="background: #fff;"
-          @load="loaded = true"
-        />
+    <!-- 加载中遮罩（iframe onload 后淡出） -->
+    <transition name="fade">
+      <div v-if="!loaded" class="absolute inset-0 z-20 flex items-center justify-center bg-slate-50/80 dark:bg-[#12141a]/80 backdrop-blur-sm">
+        <div class="flex flex-col items-center gap-3 text-slate-400 dark:text-slate-500">
+          <n-spin :size="22" />
+          <span class="text-sm">正在加载 DeepSeek Harness…</span>
+        </div>
       </div>
-    </n-card>
+    </transition>
+
+    <!-- 全屏 iframe：DSH 界面本体 -->
+    <iframe
+      ref="frameRef"
+      :src="webuiUrl"
+      class="absolute inset-0 w-full h-full border-0"
+      style="background: #fff;"
+      allow="clipboard-write; fullscreen"
+      @load="loaded = true"
+    />
+
+    <!-- 悬浮工具按钮组：右下角小圆钮，平时半透明，悬停不打扰 -->
+    <div class="absolute bottom-4 right-4 z-30 flex items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
+      <n-tooltip placement="top">
+        <template #trigger>
+          <n-button circle size="small" secondary type="primary" title="在新标签页中打开" @click="openExternal">
+            <n-icon :size="16"><ExternalLink /></n-icon>
+          </n-button>
+        </template>
+        新标签页打开
+      </n-tooltip>
+      <n-tooltip placement="top">
+        <template #trigger>
+          <n-button circle size="small" secondary title="重新加载" @click="reloadFrame">
+            <n-icon :size="16"><Refresh /></n-icon>
+          </n-button>
+        </template>
+        重新加载
+      </n-tooltip>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { NCard, NFlex, NButton, NIcon, NSpin } from 'naive-ui'
+import { NButton, NIcon, NSpin, NTooltip } from 'naive-ui'
 import { Refresh, ExternalLink } from '@vicons/tabler'
 
 // DSH WebUI 通过飞牛网关前缀反代（同源），与 fnpack/app/ui/config 中入口 URL 保持一致

@@ -55,19 +55,19 @@
                   <!-- 主内容滚动区域：Naive UI 原生 NLayoutContent -->
                   <n-layout-content
                     :native-scrollbar="false"
-                    content-class="app-content-scroll"
+                    :content-class="contentClass"
                     content-style="min-height: 100%; display: flex; flex-direction: column; align-items: center;"
                     class="flex-1"
                   >
-                    <!-- 全局统一宽度约束容器 -->
-                    <div class="w-full max-w-6xl flex-1 flex flex-col min-h-0">
+                    <!-- 宽度约束容器：WebUI 视图全宽全屏（沉浸式），管理视图保持居中限宽 -->
+                    <div :class="tab === 'webui' ? 'w-full flex-1 flex flex-col min-h-0' : 'w-full max-w-6xl flex-1 flex flex-col min-h-0'">
                       <Transition name="view-fade-slide" mode="out-in">
                         <KeepAlive>
                           <component :is="currentView" :key="tab" />
                         </KeepAlive>
                       </Transition>
                     </div>
-                    <n-back-top :bottom="70" :right="20" class="sm:!bottom-8 sm:!right-8" />
+                    <n-back-top v-if="tab !== 'webui'" :bottom="70" :right="20" class="sm:!bottom-8 sm:!right-8" />
                   </n-layout-content>
 
                 <!-- 移动端底部导航 Tabbar：全套纯正 Naive UI 组件 -->
@@ -207,9 +207,9 @@ function renderIcon(icon: Component) {
 }
 
 const menuOptions: MenuOption[] = [
+  { key: 'webui', label: '对话', icon: renderIcon(Message) },
   { key: 'overview', label: '概览', icon: renderIcon(Dashboard) },
   { key: 'workspace', label: '工作区', icon: renderIcon(Folder) },
-  { key: 'webui', label: 'WebUI', icon: renderIcon(Message) },
   { key: 'plugins', label: '插件管理', icon: renderIcon(Puzzle) },
   { key: 'logs', label: '运行日志', icon: renderIcon(FileText) }
 ]
@@ -219,9 +219,9 @@ const settingsMenuOptions: MenuOption[] = [
 ]
 
 const mobileTabs = [
+  { key: 'webui' as TabKey, label: '对话', icon: Message },
   { key: 'overview' as TabKey, label: '概览', icon: Dashboard },
   { key: 'workspace' as TabKey, label: '工作区', icon: Folder },
-  { key: 'webui' as TabKey, label: 'WebUI', icon: Message },
   { key: 'plugins' as TabKey, label: '插件', icon: Puzzle },
   { key: 'logs' as TabKey, label: '日志', icon: FileText },
   { key: 'settings' as TabKey, label: '设置', icon: Settings }
@@ -242,6 +242,11 @@ const handleMenuSelect = (key: string) => {
 
 const currentView = computed(() => views[tab.value])
 
+// WebUI 视图沉浸式全屏：清除滚动区域的内边距与背景
+const contentClass = computed(() =>
+  tab.value === 'webui' ? 'app-content-scroll app-content-full' : 'app-content-scroll'
+)
+
 onMounted(() => {
   appStore.init()
   trimSdk.initPlatformTheme((theme) => {
@@ -253,6 +258,10 @@ onMounted(() => {
 <style scoped>
 :deep(.app-content-scroll) {
   padding: 14px 14px calc(68px + env(safe-area-inset-bottom, 0px)) 14px;
+}
+/* WebUI 沉浸式视图：铺满内容区，无内边距 */
+:deep(.app-content-full) {
+  padding: 0 !important;
 }
 .mobile-tabbar-footer {
   padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
