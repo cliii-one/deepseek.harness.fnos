@@ -7,8 +7,8 @@ import { usePluginStore } from './plugin'
 import { useLogStore } from './log'
 
 export const useAppStore = defineStore('app', () => {
-  // 默认落地页：直接进入 WebUI（DSH 聊天界面），管理功能通过侧边栏切换
-  const currentTab = ref('webui')
+  // 默认落地页：概览（含服务运行状态与"进入 Harness"入口），WebUI 由用户点击进入
+  const currentTab = ref('overview')
   let isInitialized = false
 
   function setTab(tab: string) {

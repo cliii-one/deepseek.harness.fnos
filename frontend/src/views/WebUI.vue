@@ -22,39 +22,36 @@
       @load="loaded = true"
     />
 
-    <!-- 悬浮工具按钮组：右下角小圆钮，平时半透明，悬停不打扰 -->
-    <div class="absolute bottom-4 right-4 z-30 flex items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
-      <n-tooltip placement="top">
-        <template #trigger>
-          <n-button circle size="small" secondary title="管理面板" @click="goManage">
-            <n-icon :size="16"><Dashboard /></n-icon>
-          </n-button>
+    <!-- 悬浮工具按钮组：右下角带文字药丸按钮，清晰可见但不遮挡内容 -->
+    <div class="absolute bottom-5 right-5 z-30 flex items-center gap-2.5">
+      <n-button size="small" round secondary @click="goManage"
+        class="!shadow-lg shadow-black/10 backdrop-blur-md">
+        <template #icon>
+          <n-icon :size="15"><Dashboard /></n-icon>
         </template>
         管理面板
-      </n-tooltip>
-      <n-tooltip placement="top">
-        <template #trigger>
-          <n-button circle size="small" secondary type="primary" title="在新标签页中打开" @click="openExternal">
-            <n-icon :size="16"><ExternalLink /></n-icon>
-          </n-button>
+      </n-button>
+      <n-button size="small" round secondary type="primary" @click="openExternal"
+        class="!shadow-lg shadow-black/10 backdrop-blur-md">
+        <template #icon>
+          <n-icon :size="15"><ExternalLink /></n-icon>
         </template>
-        新标签页打开
-      </n-tooltip>
-      <n-tooltip placement="top">
-        <template #trigger>
-          <n-button circle size="small" secondary title="重新加载" @click="reloadFrame">
-            <n-icon :size="16"><Refresh /></n-icon>
-          </n-button>
+        新标签页
+      </n-button>
+      <n-button size="small" round secondary @click="reloadFrame"
+        class="!shadow-lg shadow-black/10 backdrop-blur-md">
+        <template #icon>
+          <n-icon :size="15"><Refresh /></n-icon>
         </template>
-        重新加载
-      </n-tooltip>
+        刷新
+      </n-button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { NButton, NIcon, NSpin, NTooltip } from 'naive-ui'
+import { NButton, NIcon, NSpin } from 'naive-ui'
 import { Refresh, ExternalLink, Dashboard } from '@vicons/tabler'
 import { configApi } from '../api'
 import { useAppStore } from '../stores/app'
