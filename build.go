@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -200,20 +201,20 @@ func ensureMusl() error {
 	return nil
 }
 
+func landlockBinPath() string {
+	return filepath.Join(landlockNativeDir(), "bin", "landlock-run")
+}
+
 func buildLandlock() error {
-	bin := filepath.Join(landlockNativeDir(), "bin", "landlock-run")
-	if _, err := os.Stat(bin); err == nil {
-		LogInfo("landlock 原生沙箱组件已就绪: %s", bin)
-		return nil
-	}
 	state.SetStatus(StatusBuilding, "正在构建 landlock 沙箱组件...")
-	LogInfo("未检测到 landlock-run，开始编译原生沙箱组件")
+	LogInfo("开始编译 landlock 原生沙箱组件")
 	if err := ensureMusl(); err != nil {
 		return err
 	}
 	if err := runCmd(srcDir, pnpmBin(), "--filter", "@deepseek-ai/node-addon-landlock-run-workspace", "run", "build:native"); err != nil {
 		return fmt.Errorf("landlock build:native: %w", err)
 	}
+	bin := landlockBinPath()
 	if _, err := os.Stat(bin); err != nil {
 		return fmt.Errorf("landlock 构建完成但产物缺失: %s", bin)
 	}
@@ -222,13 +223,15 @@ func buildLandlock() error {
 }
 
 func hasPrebuiltArtifacts() bool {
-	// 检查前端 Web 与核心库预构建产物
 	webIndex := filepath.Join(srcDir, "apps", "web", "dist", "index.html")
 	if _, err := os.Stat(webIndex); err != nil {
 		return false
 	}
 	coreLib := filepath.Join(srcDir, "packages", "api", "remotes", "lib")
 	if _, err := os.Stat(coreLib); err != nil {
+		return false
+	}
+	if _, err := os.Stat(landlockBinPath()); err != nil {
 		return false
 	}
 	return true
@@ -247,13 +250,14 @@ func buildSource(allowFastStart bool) error {
 
 	prebuilt := hasPrebuiltArtifacts()
 	hasModules := hasNodeModules()
+	isPrebuilt := isPrebuiltPkg()
 
-	// 仅在允许快速启动（初次安装/解压内置离线预构建源码包）且产物与依赖齐全时跳过编译
-	if allowFastStart && hasModules && prebuilt {
+	// 预构建包极速启动：产物完备直接跳过编译
+	if allowFastStart && isPrebuilt && hasModules && prebuilt {
 		state.SetStatus(StatusBuilding, "检测到预构建产物，正在极速启动...")
 		LogInfo("检测到内置离线预构建源码包（产物与依赖完备），跳过依赖拉取与项目编译，极速启动")
 	} else {
-		if allowFastStart && (!prebuilt || !hasModules) {
+		if allowFastStart && (!isPrebuilt || !prebuilt || !hasModules) {
 			LogInfo("检测到内置离线源码包，开始自动配置编译环境并安装依赖")
 		}
 		if err := ensureGCC(); err != nil {
@@ -268,11 +272,12 @@ func buildSource(allowFastStart bool) error {
 			return fmt.Errorf("pnpm run build: %w", err)
 		}
 		LogInfo("项目源码编译完成")
+
+		if err := buildLandlock(); err != nil {
+			return err
+		}
 	}
 
-	if err := buildLandlock(); err != nil {
-		return err
-	}
 	SetBuildTime(time.Now())
 	return nil
 }
@@ -430,11 +435,48 @@ func compareSemver(v1, v2 string) int {
 		return -1
 	}
 	if pre1 != "" && pre2 != "" {
-		if pre1 > pre2 {
-			return 1
+		parts1 := strings.Split(pre1, ".")
+		parts2 := strings.Split(pre2, ".")
+		maxParts := len(parts1)
+		if len(parts2) > maxParts {
+			maxParts = len(parts2)
 		}
-		if pre1 < pre2 {
-			return -1
+
+		for i := 0; i < maxParts; i++ {
+			if i >= len(parts1) {
+				return -1
+			}
+			if i >= len(parts2) {
+				return 1
+			}
+
+			p1, p2 := parts1[i], parts2[i]
+			if p1 == p2 {
+				continue
+			}
+
+			n1, err1 := strconv.Atoi(p1)
+			n2, err2 := strconv.Atoi(p2)
+
+			if err1 == nil && err2 == nil {
+				if n1 > n2 {
+					return 1
+				}
+				if n1 < n2 {
+					return -1
+				}
+			} else if err1 == nil && err2 != nil {
+				return -1
+			} else if err1 != nil && err2 == nil {
+				return 1
+			} else {
+				if p1 > p2 {
+					return 1
+				}
+				if p1 < p2 {
+					return -1
+				}
+			}
 		}
 	}
 	return 0
