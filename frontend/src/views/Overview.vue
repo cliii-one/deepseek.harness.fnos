@@ -48,11 +48,11 @@
             </div>
           </div>
 
-          <n-button type="primary" size="large" :disabled="!isRunning" @click="systemStore.openHarnessApp"
+          <n-button type="primary" size="large" :disabled="!isRunning" @click="goWebUI"
             class="w-full sm:w-auto !h-12 px-7 shadow-sm shadow-fnos-blue/20 font-medium rounded-xl text-base transition-transform duration-150 active:scale-95">
             <template #icon>
               <n-icon :size="20">
-                <ExternalLink />
+                <Message />
               </n-icon>
             </template>
             <span>进入 Harness</span>
@@ -221,7 +221,7 @@ import {
   useMessage
 } from 'naive-ui'
 import {
-  ExternalLink,
+  Message,
   PlayerPlay,
   PlayerStop,
   Refresh,
@@ -229,10 +229,12 @@ import {
   Tools
 } from '@vicons/tabler'
 import { useSystemStore } from '../stores/system'
+import { useAppStore } from '../stores/app'
 import { withAsyncLock } from '../utils/debounce'
 import { useIsTouchDevice } from '../utils/device'
 
 const systemStore = useSystemStore()
+const appStore = useAppStore()
 const message = useMessage()
 const isTouch = useIsTouchDevice()
 
@@ -248,6 +250,11 @@ const {
   statusLabel,
   uptimeText
 } = storeToRefs(systemStore)
+
+// 进入 Harness：切换到内嵌 WebUI 视图（应用内沉浸式，不再新开浏览器标签）
+function goWebUI() {
+  appStore.setTab('webui')
+}
 
 function formatShortCommit(c?: string): string {
   if (!c || c === '-') return '-'

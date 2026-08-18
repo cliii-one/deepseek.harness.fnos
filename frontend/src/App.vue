@@ -145,7 +145,6 @@ import {
   Folder,
   Puzzle,
   FileText,
-  Message,
   Settings
 } from '@vicons/tabler'
 import { getThemeOverrides } from './theme'
@@ -207,7 +206,6 @@ function renderIcon(icon: Component) {
 }
 
 const menuOptions: MenuOption[] = [
-  { key: 'webui', label: '对话', icon: renderIcon(Message) },
   { key: 'overview', label: '概览', icon: renderIcon(Dashboard) },
   { key: 'workspace', label: '工作区', icon: renderIcon(Folder) },
   { key: 'plugins', label: '插件管理', icon: renderIcon(Puzzle) },
@@ -219,7 +217,6 @@ const settingsMenuOptions: MenuOption[] = [
 ]
 
 const mobileTabs = [
-  { key: 'webui' as TabKey, label: '对话', icon: Message },
   { key: 'overview' as TabKey, label: '概览', icon: Dashboard },
   { key: 'workspace' as TabKey, label: '工作区', icon: Folder },
   { key: 'plugins' as TabKey, label: '插件', icon: Puzzle },

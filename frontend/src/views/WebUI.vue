@@ -12,7 +12,7 @@
       </div>
     </transition>
 
-    <!-- 全屏 iframe：DSH 界面本体 -->
+    <!-- 全屏 iframe：DSH 界面本体（按访问模式解析地址） -->
     <iframe
       ref="frameRef"
       :src="webuiUrl"
@@ -45,27 +45,53 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { NButton, NIcon, NSpin, NTooltip } from 'naive-ui'
 import { Refresh, ExternalLink } from '@vicons/tabler'
+import { configApi } from '../api'
 
-// DSH WebUI 通过飞牛网关前缀反代（同源），与 fnpack/app/ui/config 中入口 URL 保持一致
-const webuiUrl = '/app/deepseek-harness/fngateway/'
+// 默认走飞牛网关前缀反代（同源内嵌）；custom/port 模式按配置解析
+const DEFAULT_URL = '/app/deepseek-harness/fngateway/'
 
 const loaded = ref(false)
 const frameRef = ref<HTMLIFrameElement | null>(null)
+const webuiUrl = ref(DEFAULT_URL)
+
+// 按访问模式解析 WebUI 地址：fngateway 同源内嵌，custom 用外部地址，port 用代理端口
+async function resolveWebUIUrl(): Promise<string> {
+  try {
+    const res = await configApi.getConfig()
+    const cfg = res.success ? res.data : null
+    const mode = cfg?.access_mode || (cfg?.reverse_proxy_url ? 'custom' : 'fngateway')
+
+    if (mode === 'custom' && cfg?.reverse_proxy_url) {
+      return cfg.reverse_proxy_url
+    }
+    if (mode === 'port') {
+      const port = cfg?.proxy_port || 2299
+      return `https://${window.location.hostname}:${port}/`
+    }
+  } catch (e) {
+    console.error('WebUI: 读取访问模式失败，回退网关前缀', e)
+  }
+  return DEFAULT_URL
+}
+
+onMounted(async () => {
+  webuiUrl.value = await resolveWebUIUrl()
+})
 
 // 重新加载内嵌页面：重置加载态并刷新 iframe
 function reloadFrame() {
   loaded.value = false
   if (frameRef.value) {
-    frameRef.value.src = webuiUrl
+    frameRef.value.src = webuiUrl.value
   }
 }
 
 // 新标签页打开独立 WebUI（iframe 内受限时的逃生通道）
 function openExternal() {
-  window.open(webuiUrl, '_blank')
+  window.open(webuiUrl.value, '_blank')
 }
 </script>
 

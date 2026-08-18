@@ -1,8 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { StatusData, RequestResult } from '../types/api'
-import { systemApi, configApi } from '../api'
-import { trimSdk } from '../utils/trimSdk'
+import { systemApi } from '../api'
 import { usePluginStore } from './plugin'
 
 export const useSystemStore = defineStore('system', () => {
@@ -151,27 +150,6 @@ export const useSystemStore = defineStore('system', () => {
     return { success: false, message: '请求失败' }
   }
 
-  async function openHarnessApp(): Promise<void> {
-    const res = await configApi.getConfig()
-    const cfg = res.success ? res.data : null
-    const mode = cfg?.access_mode || (cfg?.reverse_proxy_url ? 'custom' : 'fngateway')
-
-    if (mode === 'custom' && cfg?.reverse_proxy_url) {
-      await trimSdk.openURL(cfg.reverse_proxy_url, '_blank')
-      return
-    }
-
-    if (mode === 'port') {
-      const port = cfg?.proxy_port || 2299
-      await trimSdk.openURL(`https://${window.location.hostname}:${port}/`, '_blank')
-      return
-    }
-
-    // 默认飞牛网关直连模式
-    const gatewayUrl = `${window.location.origin}/app/deepseek-harness/fngateway/`
-    await trimSdk.openURL(gatewayUrl, '_blank')
-  }
-
   return {
     statusData,
     wsConnected,
@@ -188,7 +166,6 @@ export const useSystemStore = defineStore('system', () => {
     stopClock,
     setWsConnected,
     updateStatus,
-    sendAction,
-    openHarnessApp
+    sendAction
   }
 })
