@@ -2,10 +2,8 @@ package main
 
 import (
 	"embed"
-	"fmt"
 	"io"
 	"io/fs"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -36,7 +34,6 @@ func InitRoutes(r *gin.Engine) {
 		api.DELETE("/logs", handleDeleteLogs)
 		api.GET("/logs/download", handleDownloadLogs)
 		api.GET("/config", handleGetConfig)
-		api.POST("/config", handleSaveConfig)
 		api.GET("/workspace/list", handleGetWorkspaces)
 		api.GET("/plugins", handleListPlugins)
 		api.GET("/plugins/status", handlePluginStatus)
@@ -449,84 +446,6 @@ func handleDownloadLogs(c *gin.Context) {
 
 func handleGetConfig(c *gin.Context) {
 	OK(c, GetConfig())
-}
-
-// checkPortAvailable 检测 TCP 端口是否可用
-func checkPortAvailable(port int) error {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return err
-	}
-	_ = ln.Close()
-	return nil
-}
-
-func handleSaveConfig(c *gin.Context) {
-	var cfg Config
-	if err := c.ShouldBindJSON(&cfg); err != nil {
-		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
-		return
-	}
-
-	if cfg.ServerPort < 1 || cfg.ServerPort > 65535 || cfg.ProxyPort < 1 || cfg.ProxyPort > 65535 {
-		Fail(c, http.StatusBadRequest, "端口号必须在 1 ~ 65535 之间")
-		return
-	}
-
-	if cfg.AccessMode == "" {
-		if cfg.ReverseProxyURL != "" {
-			cfg.AccessMode = "custom"
-		} else {
-			cfg.AccessMode = "fngateway"
-		}
-	}
-
-	if cfg.ServerPort == cfg.ProxyPort {
-		Fail(c, http.StatusBadRequest, fmt.Sprintf("内部监听端口与反向代理端口不能相同 (%d)", cfg.ServerPort))
-		return
-	}
-
-	oldCfg := GetConfig()
-	serverPortChanged := oldCfg.ServerPort != cfg.ServerPort
-	proxyPortChanged := oldCfg.ProxyPort != cfg.ProxyPort
-
-	if serverPortChanged {
-		if err := checkPortAvailable(cfg.ServerPort); err != nil {
-			Fail(c, http.StatusBadRequest, fmt.Sprintf("内部监听端口 %d 已被占用，请更换端口", cfg.ServerPort))
-			return
-		}
-	}
-
-	if proxyPortChanged {
-		if err := checkPortAvailable(cfg.ProxyPort); err != nil {
-			Fail(c, http.StatusBadRequest, fmt.Sprintf("反向代理端口 %d 已被占用，请更换端口", cfg.ProxyPort))
-			return
-		}
-	}
-
-	cfg.BuildTime = GetBuildTime()
-	cfg.Version = GetVersion()
-	cfg.Commit = GetCommit()
-	if err := SaveConfig(cfg); err != nil {
-		Fail(c, http.StatusInternalServerError, "保存失败: "+err.Error())
-		return
-	}
-
-	if serverPortChanged {
-		if state.Status() == StatusRunning {
-			LogInfo("服务端口已变更 (%d → %d)，正在自动重启服务", oldCfg.ServerPort, cfg.ServerPort)
-			go func() {
-				_ = Restart()
-			}()
-		} else {
-			restartReverseProxy()
-		}
-	} else if proxyPortChanged {
-		restartReverseProxy()
-	}
-
-	state.Poke()
-	OKMsg(c, "应用设置保存成功", cfg)
 }
 
 func logFilePath() string {

@@ -36,35 +36,6 @@
                     @update:value="handleMenuSelect"
                   />
                 </div>
-
-                <!-- 底部设置项 + 常用工具：设置按钮后面跟三个纯图标工具（进入 WebUI 时随侧边栏整体隐藏） -->
-                <div class="p-3 flex flex-col gap-3">
-                  <div>
-                    <n-divider class="!my-2" />
-                    <n-menu
-                      :value="tab"
-                      :options="settingsMenuOptions"
-                      @update:value="handleMenuSelect"
-                    />
-                  </div>
-                  <n-flex justify="space-around" align="center" :wrap="false" class="px-1">
-                    <n-button quaternary circle size="small" title="管理面板（回到概览）" @click="goOverview">
-                      <template #icon>
-                        <n-icon :size="18"><Dashboard /></n-icon>
-                      </template>
-                    </n-button>
-                    <n-button quaternary circle size="small" title="新标签页打开 Harness" @click="openHarnessTab">
-                      <template #icon>
-                        <n-icon :size="18"><ExternalLink /></n-icon>
-                      </template>
-                    </n-button>
-                    <n-button quaternary circle size="small" title="刷新页面" @click="reloadPage">
-                      <template #icon>
-                        <n-icon :size="18"><Refresh /></n-icon>
-                      </template>
-                    </n-button>
-                  </n-flex>
-                </div>
               </n-layout-sider>
 
                 <!-- 右侧主界面（滚动 Content + 移动端 Footer） -->
@@ -152,7 +123,6 @@ import {
   NLayoutContent,
   NLayoutFooter,
   NMenu,
-  NDivider,
   NFlex,
   NButton,
   NBackTop,
@@ -165,15 +135,11 @@ import {
   Dashboard,
   Folder,
   Puzzle,
-  FileText,
-  Settings,
-  ExternalLink,
-  Refresh
+  FileText
 } from '@vicons/tabler'
 import { getThemeOverrides } from './theme'
 import Overview from './views/Overview.vue'
 import Logs from './views/Logs.vue'
-import SettingsView from './views/Settings.vue'
 import Workspace from './views/Workspace.vue'
 import Plugins from './views/Plugins.vue'
 import WebUI from './views/WebUI.vue'
@@ -204,15 +170,14 @@ watch(themeMode, (mode) => {
 const currentTheme = computed(() => (themeMode.value === 'dark' ? darkTheme : null))
 const currentThemeOverrides = computed(() => getThemeOverrides(themeMode.value))
 
-type TabKey = 'overview' | 'workspace' | 'webui' | 'logs' | 'plugins' | 'settings'
+type TabKey = 'overview' | 'workspace' | 'webui' | 'logs' | 'plugins'
 
 const tabLabels: Record<TabKey, string> = {
   overview: '概览 · DeepSeek Harness',
   workspace: '工作区 · DeepSeek Harness',
   webui: 'DeepSeek Harness WebUI',
   plugins: '插件管理 · DeepSeek Harness',
-  logs: '运行日志 · DeepSeek Harness',
-  settings: '应用设置 · DeepSeek Harness'
+  logs: '运行日志 · DeepSeek Harness'
 }
 
 const views: Record<TabKey, Component> = {
@@ -220,8 +185,7 @@ const views: Record<TabKey, Component> = {
   workspace: Workspace,
   webui: WebUI,
   logs: Logs,
-  plugins: Plugins,
-  settings: SettingsView
+  plugins: Plugins
 }
 
 function renderIcon(icon: Component) {
@@ -235,16 +199,11 @@ const menuOptions: MenuOption[] = [
   { key: 'logs', label: '运行日志', icon: renderIcon(FileText) }
 ]
 
-const settingsMenuOptions: MenuOption[] = [
-  { key: 'settings', label: '应用设置', icon: renderIcon(Settings) }
-]
-
 const mobileTabs = [
   { key: 'overview' as TabKey, label: '概览', icon: Dashboard },
   { key: 'workspace' as TabKey, label: '工作区', icon: Folder },
   { key: 'plugins' as TabKey, label: '插件', icon: Puzzle },
-  { key: 'logs' as TabKey, label: '日志', icon: FileText },
-  { key: 'settings' as TabKey, label: '设置', icon: Settings }
+  { key: 'logs' as TabKey, label: '日志', icon: FileText }
 ]
 
 const tab = computed<TabKey>({
@@ -258,21 +217,6 @@ watch(tab, (newTab) => {
 
 const handleMenuSelect = (key: string) => {
   tab.value = key as TabKey
-}
-
-// 侧边栏底部工具：管理面板（回到概览）
-function goOverview() {
-  tab.value = 'overview'
-}
-
-// 侧边栏底部工具：新标签页打开 DSH WebUI（独立窗口聊天，与内嵌互不影响）
-function openHarnessTab() {
-  window.open('/app/deepseek-harness/fngateway/', '_blank')
-}
-
-// 侧边栏底部工具：刷新管理面板当前视图
-function reloadPage() {
-  window.location.reload()
 }
 
 const currentView = computed(() => views[tab.value])

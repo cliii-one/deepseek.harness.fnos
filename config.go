@@ -120,25 +120,3 @@ func SetLastRunState(st string) {
 	configMu.Unlock()
 	persistConfig()
 }
-
-func SaveConfig(cfg Config) error {
-	configMu.Lock()
-	if cfg.LastRunState == "" && globalConfig.LastRunState != "" {
-		cfg.LastRunState = globalConfig.LastRunState
-	}
-	globalConfig = cfg
-	configMu.Unlock()
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmpFile := configFilePath + ".tmp"
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpFile, configFilePath); err != nil {
-		return err
-	}
-	ApplyProxyEnv()
-	return nil
-}

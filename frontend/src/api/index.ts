@@ -49,9 +49,8 @@ export const logApi = {
 }
 
 /**
- * 应用配置 API
+ * 应用配置 API（只读：工作区数据目录路径等；访问方式固定飞牛统一网关，无写入）
  */
 export const configApi = {
-  getConfig: () => http.get<SettingsConfig>('config'),
-  saveConfig: (config: SettingsConfig) => http.post<SettingsConfig>('config', config)
+  getConfig: () => http.get<SettingsConfig>('config')
 }
