@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -679,6 +680,35 @@ func handlePluginCancel(c *gin.Context) {
 	OKMsg(c, "已发送取消指令", nil)
 }
 
+// 插件操作子进程最长等待时间：超时后强制终止进程组（防止 pnpm 网络卡死导致前端无限转圈）
+const pluginOpTimeout = 240 * time.Second
+
+// 收敛 npm/pnpm 网络等待：registry 请求配置短重试与短超时，快速失败而非无限悬挂
+func pluginCmdEnv() []string {
+	env := os.Environ()
+	return append(env,
+		"npm_config_fetch_retries=1",
+		"npm_config_fetch_timeout=30000",
+	)
+}
+
+// 带超时的子进程等待：超时后整组终止（含孙进程），并返回可读的超时错误
+func waitCmdWithTimeout(cmd *exec.Cmd) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(pluginOpTimeout):
+		LogWarning("[插件管理] 插件操作超过 %s 无响应，强制终止进程组 (PID: %d)", pluginOpTimeout, cmd.Process.Pid)
+		killProcessTree(cmd.Process.Pid)
+		<-done
+		return fmt.Errorf("插件操作超时（%s），已强制终止，请检查网络或依赖环境后重试", pluginOpTimeout)
+	}
+}
+
 func runPluginSubprocess(cmdArgs []string) error {
 	tail := newTailWriter(800)
 	outWriter := NewLogWriterInfo()
@@ -689,6 +719,7 @@ func runPluginSubprocess(cmdArgs []string) error {
 	bin, args := dshCliCmd(cmdArgs...)
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = srcDir
+	cmd.Env = pluginCmdEnv()
 	setProcessGroup(cmd)
 	cmd.Stdout = io.MultiWriter(outWriter, tail)
 	cmd.Stderr = io.MultiWriter(errWriter, tail)
@@ -708,7 +739,7 @@ func runPluginSubprocess(cmdArgs []string) error {
 		activePluginCmdMu.Unlock()
 	}()
 
-	err := cmd.Wait()
+	err := waitCmdWithTimeout(cmd)
 	if err != nil {
 		activePluginCmdMu.Lock()
 		canceled := activePluginCanceled
@@ -730,6 +761,7 @@ func runPluginSync(cmdArgs []string) (string, error) {
 	bin, args := dshCliCmd(cmdArgs...)
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = srcDir
+	cmd.Env = pluginCmdEnv()
 	setProcessGroup(cmd)
 	var buf bytes.Buffer
 	cmd.Stdout = io.MultiWriter(outWriter, &buf)
@@ -750,7 +782,7 @@ func runPluginSync(cmdArgs []string) (string, error) {
 		activePluginCmdMu.Unlock()
 	}()
 
-	err := cmd.Wait()
+	err := waitCmdWithTimeout(cmd)
 	if err != nil {
 		activePluginCmdMu.Lock()
 		canceled := activePluginCanceled
