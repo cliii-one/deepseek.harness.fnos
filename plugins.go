@@ -920,9 +920,13 @@ func handlePluginRun(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if reason := pluginPreviewError(cmd); reason != "" {
-		Fail(c, http.StatusBadRequest, reason)
-		return
+	// 输入框预览校验仅适用于安装（add，含重复安装检查）；
+	// 更新/卸载/列表等操作由插件列表入口发起，其目标包名已在安装清单内，直接放行执行
+	if cmd.Verb == pluginAdd {
+		if reason := pluginPreviewError(cmd); reason != "" {
+			Fail(c, http.StatusBadRequest, reason)
+			return
+		}
 	}
 	if err := setPluginRunning(); err != nil {
 		Fail(c, http.StatusConflict, err.Error())
