@@ -37,6 +37,8 @@ export interface StatusData {
   app_url: string
   pid?: number
   last_message: string
+  /** 运行架构展示名（ARM / x86） */
+  arch?: string
 }
 
 /**
@@ -143,6 +145,7 @@ export interface SettingsConfig {
 
 /**
  * 更新检查结果（只读；mode=offline 表示离线包安装，不做 git 比对）
+ * local_version/latest_version 为版本号维度比对结果（clone 模式）
  */
 export interface UpdateCheckResult {
   git_ready: boolean
@@ -150,6 +153,8 @@ export interface UpdateCheckResult {
   local_commit: string
   remote_commit: string
   has_update: boolean
+  local_version?: string
+  latest_version?: string
 }
 
 /**

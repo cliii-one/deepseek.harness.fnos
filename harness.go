@@ -276,6 +276,16 @@ func dshCliCmd(subArgs ...string) (string, []string) {
 	return pnpmBin(), append([]string{"dsh"}, subArgs...)
 }
 
+// dshBrandEnv 返回 DSH WebUI 官方品牌所需的构建/运行环境变量。
+// 上游 rc.8 起侧边栏品牌默认回落为 "DSH Local Build"，仅当 DSH_CLIENT_BUILD_PROFILE=official
+// 时官方品牌插件 (ui-brand-official) 才启用，并配合页面标题 "DeepSeek Harness"。
+func dshBrandEnv() []string {
+	return []string{
+		"DSH_CLIENT_BUILD_PROFILE=official",
+		"DSH_CLIENT_TITLE=DeepSeek Harness",
+	}
+}
+
 func startLocked() error {
 	killHarnessLocked()
 	ClearAllPluginFailures()
@@ -289,6 +299,7 @@ func startLocked() error {
 	bin, args := dshCliCmd("web", "--port", fmt.Sprintf("%d", port))
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = srcDir
+	cmd.Env = append(os.Environ(), dshBrandEnv()...)
 	cmd.Stdout = NewLogWriterInfo()
 	cmd.Stderr = NewLogWriterWarn()
 	setProcessGroup(cmd)

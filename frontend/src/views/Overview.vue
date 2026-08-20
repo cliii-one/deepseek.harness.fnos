@@ -62,8 +62,8 @@
         <!-- 原生分割线 -->
         <n-divider class="!my-5 sm:!my-6" />
 
-        <!-- 下半部分：3 列运行指标网格 -->
-        <n-grid :cols="3" :x-gap="16" :y-gap="12" class="text-center" responsive="screen" item-responsive>
+        <!-- 下半部分：4 列运行指标网格 -->
+        <n-grid :cols="4" :x-gap="16" :y-gap="12" class="text-center" responsive="screen" item-responsive>
           <n-gi>
             <div
               class="py-3 sm:py-3.5 px-3 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-100/80 dark:border-white/[0.06] h-full flex flex-col justify-center transition-all duration-200 hover:border-slate-200/90 dark:hover:border-white/[0.12] hover:bg-slate-100/50 dark:hover:bg-white/[0.06]">
@@ -89,6 +89,21 @@
                 <template #default>
                   <div class="text-sm sm:text-base font-bold text-slate-700 dark:text-slate-200 truncate mt-0.5">
                     {{ uptimeText }}
+                  </div>
+                </template>
+              </n-statistic>
+            </div>
+          </n-gi>
+
+          <n-gi>
+            <div
+              class="py-3 sm:py-3.5 px-3 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-100/80 dark:border-white/[0.06] h-full flex flex-col justify-center transition-all duration-200 hover:border-slate-200/90 dark:hover:border-white/[0.12] hover:bg-slate-100/50 dark:hover:bg-white/[0.06]">
+              <n-statistic label="运行架构">
+                <template #default>
+                  <div class="flex justify-center mt-1">
+                    <n-tag :type="archTagType" size="medium" round :bordered="false" class="font-medium transition-all duration-200">
+                      {{ statusData.arch || '—' }}
+                    </n-tag>
                   </div>
                 </template>
               </n-statistic>
@@ -270,10 +285,12 @@ const handleCheckAndUpdate = withAsyncLock(async () => {
       return
     }
     if (!info.has_update) {
-      message.success(`已是最新版本 (${formatShortCommit(info.local_commit)})`)
+      const ver = info.local_version || formatShortCommit(info.local_commit)
+      message.success(`已是最新版本 (${ver})`)
       return
     }
-    message.info(`发现新版本 ${formatShortCommit(info.local_commit)} → ${formatShortCommit(info.remote_commit)}，开始更新…`)
+    const target = info.latest_version || formatShortCommit(info.remote_commit)
+    message.info(`发现新版本 ${target}，开始更新…`)
     await handleAction('upgrade')
   } finally {
     checkingUpgrade.value = false
@@ -299,6 +316,10 @@ interface ActionCard {
 
 const isRestarting = computed(() => activeAction.value === 'restart')
 const showStopCard = computed(() => isRunning.value || isRestarting.value)
+// 运行架构标签样式：ARM 绿色 / x86 蓝色
+const archTagType = computed<'success' | 'info'>(() =>
+  (statusData.value.arch || '').toUpperCase().includes('ARM') ? 'success' : 'info',
+)
 
 const actionCards = computed<ActionCard[]>(() => [
   showStopCard.value

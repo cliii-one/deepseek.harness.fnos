@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -171,6 +172,19 @@ func statusPayload() gin.H {
 		"app_url":       appURL,
 		"pid":           pidVal,
 		"last_message":  lastMsg,
+		"arch":          archLabel(),
+	}
+}
+
+// archLabel 返回管理壳运行架构的展示名（ARM / x86），供管理面板展示
+func archLabel() string {
+	switch runtime.GOARCH {
+	case "arm64", "arm":
+		return "ARM"
+	case "amd64", "386":
+		return "x86"
+	default:
+		return runtime.GOARCH
 	}
 }
 
@@ -451,14 +465,18 @@ func handleGetConfig(c *gin.Context) {
 
 // handleCheckUpdate 检查 DSH 服务是否有新版本。
 // 纯只读：git_ready=false 为离线包安装（无 .git），不做 git 比对；
-// clone 安装则对比本地 HEAD 与远程 main HEAD，判断是否存在新版本。
+// clone 安装则双维度判断：
+//   1) commit 维度：本地 HEAD 与远程默认分支 HEAD 比对（分支改名后仍正确，见 gitRemoteHead）
+//   2) 版本维度：远程最新版本 tag 与本地 package.json 版本比对（默认分支未合并 tag 也能发现更新）
 func handleCheckUpdate(c *gin.Context) {
 	type checkResult struct {
-		GitReady     bool   `json:"git_ready"`
-		Mode         string `json:"mode"`
-		LocalCommit  string `json:"local_commit"`
-		RemoteCommit string `json:"remote_commit"`
-		HasUpdate    bool   `json:"has_update"`
+		GitReady      bool   `json:"git_ready"`
+		Mode          string `json:"mode"`
+		LocalCommit   string `json:"local_commit"`
+		RemoteCommit  string `json:"remote_commit"`
+		HasUpdate     bool   `json:"has_update"`
+		LocalVersion  string `json:"local_version,omitempty"`
+		LatestVersion string `json:"latest_version,omitempty"`
 	}
 
 	res := checkResult{Mode: "offline"}
@@ -474,6 +492,14 @@ func handleCheckUpdate(c *gin.Context) {
 	res.LocalCommit = gitHead()
 	res.RemoteCommit = gitRemoteHead()
 	if res.LocalCommit != "" && res.RemoteCommit != "" && res.LocalCommit != res.RemoteCommit {
+		res.HasUpdate = true
+	}
+
+	// 版本维度：远程最新版本 tag 高于本地版本即视为有更新
+	res.LocalVersion = readVersion()
+	res.LatestVersion = gitLatestRemoteVersion()
+	if !res.HasUpdate && res.LatestVersion != "" && res.LocalVersion != "" &&
+		compareSemver(res.LatestVersion, res.LocalVersion) > 0 {
 		res.HasUpdate = true
 	}
 	OK(c, res)
