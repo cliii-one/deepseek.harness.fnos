@@ -1,0 +1,41 @@
+diff --git a/packages/client/ui-settings-general/src/client/index.ts b/packages/client/ui-settings-general/src/client/index.ts
+index dd62e8a..7ac5992 100644
+--- a/packages/client/ui-settings-general/src/client/index.ts
++++ b/packages/client/ui-settings-general/src/client/index.ts
+@@ -70,9 +70,7 @@ export function apply(ctx: ClientContext): void {
+   const connection = ctx.get('connection') as ConnectionHandle
+   // The action follows the shared describe mirror, whose owning plugin
+   // already refreshes it on document commits and reconnects.
+-  const documentController = connection.isLoopback
+-    ? new SettingsDocumentStore(connection.api, ctx.settingsScope.describe())
+-    : undefined
++  const documentController = new SettingsDocumentStore(connection.api, ctx.settingsScope.describe())
+   const documentInjected = documentController === undefined
+     ? undefined
+     : (): SettingsDocumentActionInjected => ({
+diff --git a/packages/client/ui-settings/src/client/index.ts b/packages/client/ui-settings/src/client/index.ts
+index f2763da..7c8e978 100644
+--- a/packages/client/ui-settings/src/client/index.ts
++++ b/packages/client/ui-settings/src/client/index.ts
+@@ -51,7 +51,7 @@ export function apply(ctx: ClientContext): void {
+   const connection = ctx.get('connection') as ConnectionHandle
+   const mirror = new SettingsDescribeMirror(
+     connection.api,
+-    connection.isLoopback ? 'host' : 'memory',
++    'host', // dsh-fnos 适配: 放开远程浏览器 settings 降级（访问经管理壳网关鉴权）
+   )
+   ctx.effect(() => {
+     const disposers = [
+diff --git a/packages/client/ui-settings/src/client/settings-scope.ts b/packages/client/ui-settings/src/client/settings-scope.ts
+index 36e674c..3eb2fc7 100644
+--- a/packages/client/ui-settings/src/client/settings-scope.ts
++++ b/packages/client/ui-settings/src/client/settings-scope.ts
+@@ -279,7 +279,7 @@ export class SettingsScopeBinder extends Service {
+       connection.api,
+       spec,
+       this.mirror,
+-      connection.isLoopback ? 'host' : 'memory',
++      'host', // dsh-fnos 适配: 放开远程浏览器 settings 降级
+       this.schema,
+     )
+     ctx.effect(() => {

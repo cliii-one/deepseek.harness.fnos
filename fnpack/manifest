@@ -1,5 +1,5 @@
 appname               = deepseek.harness
-version               = 0.4.3
+version               = 0.4.4
 display_name          = DeepSeek Harness
 desc                  = DeepSeek Harness 管理应用，支持管理 Harness 服务的启动、停止、重启、源码构建与检查更新。<br/>管理面板内可直接打开 Harness WebUI（DSH 聊天界面），访问固定走飞牛统一网关
 platform              = arm

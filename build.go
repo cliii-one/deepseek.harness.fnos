@@ -136,6 +136,43 @@ func update(forceRebuild bool) {
 	restartService()
 }
 
+// dshPatchPath 返回随应用分发的 DSH 适配补丁路径：fpk 安装后在 app/patches 下，
+// 仓库开发运行时回退到 fnpack/app/patches。
+func dshPatchPath() string {
+	if exe, err := os.Executable(); err == nil {
+		c := filepath.Join(filepath.Dir(filepath.Dir(exe)), "patches", "dsh-remote-settings.patch")
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	c := filepath.Join("fnpack", "app", "patches", "dsh-remote-settings.patch")
+	if _, err := os.Stat(c); err != nil {
+		LogWarning("DSH 适配补丁文件缺失: %s", c)
+	}
+	return c
+}
+
+// applyDshPatches 在构建前把 DSH 适配补丁（如远程浏览器设置页回环限制放开）应用到源码。
+// 幂等：若上次构建已应用过（git 索引落后于磁盘），先原样还原再重新应用，保证每次构建产物一致；
+// 补丁校验失败视为构建失败（否则产物回到上游受限行为，用户白等）。
+func applyDshPatches() error {
+	patch := dshPatchPath()
+	// 已应用则先反向还原（上游 git 索引与磁盘内容对比由 git apply 判定）
+	if err := gitCmd("-C", srcDir, "apply", "--check", "--reverse", patch).Run(); err == nil {
+		if err := gitCmd("-C", srcDir, "apply", "--reverse", patch).Run(); err != nil {
+			return fmt.Errorf("还原已应用的 DSH 适配补丁失败: %w", err)
+		}
+	}
+	if err := gitCmd("-C", srcDir, "apply", "--check", patch).Run(); err != nil {
+		return fmt.Errorf("DSH 适配补丁校验失败（上游源码可能已变更，请反馈更新补丁）: %w", err)
+	}
+	if err := gitCmd("-C", srcDir, "apply", patch).Run(); err != nil {
+		return fmt.Errorf("DSH 适配补丁应用失败: %w", err)
+	}
+	LogInfo("[适配] 已应用 dsh-remote-settings 补丁（远程浏览器设置页可用）")
+	return nil
+}
+
 // gitResetTo 将 srcDir 的 git 状态硬重置到指定 commit
 func gitResetTo(commit string) error {
 	cmd := gitCmd("-C", srcDir, "reset", "--hard", commit)
@@ -456,6 +493,10 @@ func buildSource(allowFastStart bool) error {
 	} else {
 		if allowFastStart && (!isPrebuilt || !prebuilt || !hasModules) {
 			LogInfo("检测到内置离线源码包，开始自动配置编译环境并安装依赖")
+		}
+		// DSH 适配补丁：放开远程浏览器设置页的回环限制（构建产物随补丁生成，更新/重建后自动重打）
+		if err := applyDshPatches(); err != nil {
+			return err
 		}
 		// 内存预检：避免低内存 NAS 上构建导致 OOM 系统失联
 		availMB := buildMemoryMB()
