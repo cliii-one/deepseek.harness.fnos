@@ -199,23 +199,34 @@ func pluginProfileDir() string {
 	return filepath.Join(pkgVarDir, "dsh-data", "profiles", "web")
 }
 
-// installDefaultPlugins 确保默认插件（dshmarket 插件市场）已安装。
-// 幂等：快速检查 profile/package.json 是否已含该插件，已装则跳过（无网络开销）。
-// 首次安装约 10s，失败不影响主服务启动。
-func installDefaultPlugins() {
+// defaultPlugins 定义管理壳启动时自动维护的默认插件列表。
+// 首次启动自动安装，后续启动自动检查更新（幂等，已最新则秒回）。
+var defaultPlugins = []string{"dshmarket"}
+
+// ensureDefaultPlugins 确保默认插件已安装并保持最新。
+// 幂等：已安装且最新则跳过（零开销）；失败不影响主服务启动。
+func ensureDefaultPlugins() {
 	pkgPath := filepath.Join(pluginProfileDir(), "package.json")
 	data, err := os.ReadFile(pkgPath)
 	if err != nil {
 		return // profile 尚未初始化，启动后由 DSH 处理
 	}
-	if strings.Contains(string(data), `"dshmarket"`) {
-		return // 已安装
-	}
-	LogInfo("正在自动安装默认插件 dshmarket（插件市场）...")
-	if err := runPluginSubprocess([]string{"plugin", "--profile", "web", "add", "dshmarket"}); err != nil {
-		LogWarning("默认插件 dshmarket 安装失败（不影响主服务运行）: %s", err)
-	} else {
-		LogInfo("默认插件 dshmarket 安装成功")
+	pkgData := string(data)
+	for _, name := range defaultPlugins {
+		if !strings.Contains(pkgData, `"`+name+`"`) {
+			// 首次：安装插件
+			LogInfo("正在自动安装默认插件 %s ...", name)
+			if err := runPluginSubprocess([]string{"plugin", "--profile", "web", "add", name}); err != nil {
+				LogWarning("默认插件 %s 安装失败（不影响主服务运行）: %s", name, err)
+			} else {
+				LogInfo("默认插件 %s 安装成功", name)
+			}
+		} else {
+			// 已安装：检查更新（静默，已最新则秒回，网络失败不影响启动）
+			if err := runPluginSubprocess([]string{"plugin", "--profile", "web", "update", name}); err != nil {
+				LogInfo("插件 %s 无可用更新或更新失败: %s", name, err)
+			}
+		}
 	}
 }
 
