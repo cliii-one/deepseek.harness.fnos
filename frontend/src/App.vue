@@ -134,14 +134,14 @@ import {
 import {
   Dashboard,
   Folder,
-  Puzzle,
+
   FileText
 } from '@vicons/tabler'
 import { getThemeOverrides } from './theme'
 import Overview from './views/Overview.vue'
 import Logs from './views/Logs.vue'
 import Workspace from './views/Workspace.vue'
-import Plugins from './views/Plugins.vue'
+
 import WebUI from './views/WebUI.vue'
 import { useAppStore } from './stores/app'
 import { trimSdk } from './utils/trimSdk'
@@ -170,13 +170,12 @@ watch(themeMode, (mode) => {
 const currentTheme = computed(() => (themeMode.value === 'dark' ? darkTheme : null))
 const currentThemeOverrides = computed(() => getThemeOverrides(themeMode.value))
 
-type TabKey = 'overview' | 'workspace' | 'webui' | 'logs' | 'plugins'
+type TabKey = 'overview' | 'workspace' | 'webui' | 'logs'
 
 const tabLabels: Record<TabKey, string> = {
   overview: '概览 · DeepSeek Harness',
   workspace: '工作区 · DeepSeek Harness',
   webui: 'DeepSeek Harness WebUI',
-  plugins: '插件管理 · DeepSeek Harness',
   logs: '运行日志 · DeepSeek Harness'
 }
 
@@ -184,8 +183,7 @@ const views: Record<TabKey, Component> = {
   overview: Overview,
   workspace: Workspace,
   webui: WebUI,
-  logs: Logs,
-  plugins: Plugins
+  logs: Logs
 }
 
 function renderIcon(icon: Component) {
@@ -195,14 +193,12 @@ function renderIcon(icon: Component) {
 const menuOptions: MenuOption[] = [
   { key: 'overview', label: '概览', icon: renderIcon(Dashboard) },
   { key: 'workspace', label: '工作区', icon: renderIcon(Folder) },
-  { key: 'plugins', label: '插件管理', icon: renderIcon(Puzzle) },
   { key: 'logs', label: '运行日志', icon: renderIcon(FileText) }
 ]
 
 const mobileTabs = [
   { key: 'overview' as TabKey, label: '概览', icon: Dashboard },
   { key: 'workspace' as TabKey, label: '工作区', icon: Folder },
-  { key: 'plugins' as TabKey, label: '插件', icon: Puzzle },
   { key: 'logs' as TabKey, label: '日志', icon: FileText }
 ]
 
