@@ -1,6 +1,9 @@
 {
     "defaults":
     {
-        "run-as": "root"
-    }
+        "run-as": "package"
+    },
+    "username": "deepseek.harness",
+    "groupname": "deepseek.harness",
+    "join-groups": ["docker"]
 }
