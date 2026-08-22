@@ -1,8 +1,6 @@
 {
     "defaults":
     {
-        "run-as": "package"
-    },
-    "username": "deepseek.harness",
-    "groupname": "deepseek.harness"
+        "run-as": "root"
+    }
 }
