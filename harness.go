@@ -304,6 +304,9 @@ func startLocked() error {
 	cmd.Stderr = NewLogWriterWarn()
 	setProcessGroup(cmd)
 
+	// 确保默认插件已安装（幂等，已装则跳过，首次约 10s）
+	installDefaultPlugins()
+
 	if err := cmd.Start(); err != nil {
 		state.SetStatus(StatusStopped, "启动失败: "+err.Error())
 		return err

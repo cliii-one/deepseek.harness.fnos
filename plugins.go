@@ -199,6 +199,26 @@ func pluginProfileDir() string {
 	return filepath.Join(pkgVarDir, "dsh-data", "profiles", "web")
 }
 
+// installDefaultPlugins 确保默认插件（dshmarket 插件市场）已安装。
+// 幂等：快速检查 profile/package.json 是否已含该插件，已装则跳过（无网络开销）。
+// 首次安装约 10s，失败不影响主服务启动。
+func installDefaultPlugins() {
+	pkgPath := filepath.Join(pluginProfileDir(), "package.json")
+	data, err := os.ReadFile(pkgPath)
+	if err != nil {
+		return // profile 尚未初始化，启动后由 DSH 处理
+	}
+	if strings.Contains(string(data), `"dshmarket"`) {
+		return // 已安装
+	}
+	LogInfo("正在自动安装默认插件 dshmarket（插件市场）...")
+	if err := runPluginSubprocess([]string{"plugin", "--profile", "web", "add", "dshmarket"}); err != nil {
+		LogWarning("默认插件 dshmarket 安装失败（不影响主服务运行）: %s", err)
+	} else {
+		LogInfo("默认插件 dshmarket 安装成功")
+	}
+}
+
 // pluginItem 前端呈现的富元数据插件模型
 type pluginItem struct {
 	Name        string   `json:"name"`
