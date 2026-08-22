@@ -4,6 +4,5 @@
         "run-as": "package"
     },
     "username": "deepseek.harness",
-    "groupname": "deepseek.harness",
-    "join-groups": ["docker"]
+    "groupname": "deepseek.harness"
 }
